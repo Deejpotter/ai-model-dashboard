@@ -8,6 +8,7 @@ const dbDir = path.join(process.cwd(), 'data');
 const dbPath = path.join(dbDir, 'models.db');
 const schemaPath = path.join(process.cwd(), 'src', 'db', 'schema.sql');
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let dbInstance: any = null;
 
 function normalizeModel(model: Record<string, unknown>) {

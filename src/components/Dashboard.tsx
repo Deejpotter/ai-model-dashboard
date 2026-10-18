@@ -1,279 +1,62 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 
-type Model = {
-  id: number;
-  provider: string;
-  model_id: string;
-  name: string;
-  api: string | null;
-  reasoning: number;
-  multimodal: string | null;
-  price_input: number | null;
-  price_output: number | null;
-  price_cache_read: number | null;
-  price_cache_write: number | null;
-  context_window: number | null;
-  max_tokens: number | null;
-  mmlu_pro: number | null;
-  gpqa_diamond: number | null;
-  hle: number | null;
-  aime_2026: number | null;
-  swe_verified: number | null;
-  livecode_bench: number | null;
-  codeforces_elo: number | null;
-  terminal_bench: number | null;
-  mmlu: number | null;
-  score_coding: number | null;
-  score_thinking: number | null;
-  score_maths: number | null;
-  score_overall: number | null;
-  score_sources: string | null;
-  is_favourite: number;
-  notes: string | null;
-  source_url: string | null;
+export type Model = {
+  id: number; provider: string; model_id: string; name: string; reasoning: number; multimodal: string | null;
+  price_input: number | null; price_output: number | null; price_cache_read: number | null; price_cache_write: number | null;
+  context_window: number | null; max_tokens: number | null; mmlu_pro: number | null; gpqa_diamond: number | null;
+  hle: number | null; aime_2026: number | null; swe_verified: number | null; livecode_bench: number | null;
+  score_coding?: number | null; score_thinking?: number | null; score_maths?: number | null; score_overall?: number | null;
+  is_favourite: number; notes: string | null; last_updated: string | null; last_seen?: string | null; available_via?: string | null; source_url: string | null;
 };
+type View = 'discover' | 'planner' | 'compare';
+type UseCase = 'all' | 'coding' | 'vision' | 'reasoning' | 'long-context';
+const M = 1_000_000;
+const money = (value: number | null) => value == null ? 'Unknown' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
+const context = (value: number | null) => !value ? 'Unknown' : value >= M ? `${(value / M).toFixed(value % M ? 1 : 0)}M` : `${Math.round(value / 1000)}K`;
+const modes = (model: Model) => (model.multimodal || 'text').split(',').map((v) => v.trim()).filter(Boolean);
+const avg = (values: Array<number | null | undefined>) => { const xs = values.filter((v): v is number => v != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
+const evidence = (m: Model) => ({ coding: m.score_coding ?? avg([m.swe_verified, m.livecode_bench]), thinking: m.score_thinking ?? avg([m.gpqa_diamond, m.hle]), maths: m.score_maths ?? avg([m.aime_2026]) });
+const score = (value: number | null) => value == null ? 'No comparable evidence' : `${value.toFixed(1)} / 100`;
+const param = (key: string) => typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get(key);
+const numberParam = (key: string, fallback: number) => { const raw = param(key); if (raw == null || raw === '') return fallback; const value = Number(raw); return Number.isFinite(value) && value >= 0 ? value : fallback; };
+function cost(m: Model, input: number, output: number, cache: number) { if (m.price_input == null || m.price_output == null || (cache > 0 && m.price_cache_read == null)) return null; return input * (1 - cache / 100) / M * m.price_input + input * cache / 100 / M * (m.price_cache_read ?? 0) + output / M * m.price_output; }
+function updated(value: string | null) { if (!value) return 'Update time unavailable'; const date = new Date(value.replace(' ', 'T') + 'Z'); return Number.isNaN(date.valueOf()) ? 'Update time unavailable' : `Updated ${new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium' }).format(date)}`; }
 
-const benchmarkKeys = [
-  ['score_overall', 'Overall'],
-  ['score_coding', 'Coding'],
-  ['score_thinking', 'Thinking'],
-  ['score_maths', 'Maths'],
-] as const;
-
-function money(value: number | null | undefined) {
-  if (value == null) return '—';
-  return `$${value.toFixed(2)}`;
-}
-
-function ctx(value: number | null | undefined) {
-  if (!value) return '—';
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-  return `${Math.round(value / 1000)}K`;
-}
-
-export default function Dashboard() {
-  const [models, setModels] = useState<Model[]>([]);
-  const [search, setSearch] = useState('');
-  const [provider, setProvider] = useState('');
-  const [favouritesOnly, setFavouritesOnly] = useState(false);
-  const [sort, setSort] = useState('price_output');
-  const [dir, setDir] = useState<'asc' | 'desc'>('asc');
-  const [tab, setTab] = useState<'catalog' | 'projections' | 'compare'>('catalog');
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [inputTokens, setInputTokens] = useState(5000000);
-  const [outputTokens, setOutputTokens] = useState(1000000);
-  const [cacheHitRate, setCacheHitRate] = useState(30);
-
-  async function loadModels() {
-    const qs = new URLSearchParams();
-    if (search) qs.set('search', search);
-    if (provider) qs.set('provider', provider);
-    if (favouritesOnly) qs.set('favourites', '1');
-    qs.set('sort', sort);
-    qs.set('dir', dir);
-    const res = await fetch(`/api/models?${qs.toString()}`);
-    const data = await res.json();
-    setModels(data);
-  }
-
-  useEffect(() => {
-    loadModels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, provider, favouritesOnly, sort, dir]);
-
-  async function toggleFavourite(id: number) {
-    await fetch(`/api/models/${id}/favourite`, { method: 'PATCH' });
-    await loadModels();
-  }
-
+export default function Dashboard({ initialModels }: { initialModels: Model[] }) {
+  const [models, setModels] = useState(initialModels); const [view, setView] = useState<View>(() => param('view') === 'planner' || param('view') === 'compare' ? param('view') as View : 'discover');
+  const [query, setQuery] = useState(() => param('q') ?? ''); const [provider, setProvider] = useState(() => param('provider') ?? ''); const [useCase, setUseCase] = useState<UseCase>(() => ['coding', 'vision', 'reasoning', 'long-context'].includes(param('use') ?? '') ? param('use') as UseCase : 'all');
+  const [cap, setCap] = useState(() => param('cap') ?? ''); const [favourites, setFavourites] = useState(() => param('favourites') === '1'); const [available, setAvailable] = useState(() => param('available') === '1'); const [sort, setSort] = useState<'cost' | 'context'>(() => param('sort') === 'context' ? 'context' : 'cost');
+  const [compare, setCompare] = useState<number[]>(() => (param('compare') ?? '').split(',').map(Number).filter(Boolean).slice(0, 4)); const [detail, setDetail] = useState<Model | null>(null); const [notice, setNotice] = useState('');
+  const [input, setInput] = useState(() => numberParam('input', 5_000_000)); const [output, setOutput] = useState(() => numberParam('output', 1_000_000)); const [cache, setCache] = useState(() => numberParam('cache', 30)); const [budget, setBudget] = useState(() => param('budget') ?? ''); const [baseline, setBaseline] = useState(() => numberParam('baseline', 0));
+  const sync = (changes: Record<string, string | null>) => { const p = new URLSearchParams(location.search); Object.entries(changes).forEach(([k, v]) => v ? p.set(k, v) : p.delete(k)); history.replaceState(null, '', `${location.pathname}${p.size ? `?${p}` : ''}`); };
   const providers = useMemo(() => [...new Set(models.map((m) => m.provider))].sort(), [models]);
-
-  const selectedModels = useMemo(() => models.filter((m) => selectedIds.includes(m.id)), [models, selectedIds]);
-
-  const projections = useMemo(() => {
-    return [...models].map((m) => {
-      const inCost = ((inputTokens * (1 - cacheHitRate / 100)) / 1_000_000) * (m.price_input ?? 0);
-      const cacheCost = ((inputTokens * (cacheHitRate / 100)) / 1_000_000) * (m.price_cache_read ?? 0);
-      const outCost = (outputTokens / 1_000_000) * (m.price_output ?? 0);
-      return { ...m, monthlyCost: inCost + cacheCost + outCost };
-    }).sort((a, b) => a.monthlyCost - b.monthlyCost);
-  }, [models, inputTokens, outputTokens, cacheHitRate]);
-
-  const topProjection = projections[0];
-
-  return (
-    <main className="dashboard-shell">
-      <section className="hero">
-        <div>
-          <h1>AI Model Dashboard</h1>
-          <p>Track pricing, benchmarks, favourites, and cost projections across your current model stack.</p>
-        </div>
-        <div className="hero-stats">
-          <div><strong>{models.length}</strong><span>Models</span></div>
-          <div><strong>{models.filter((m) => m.is_favourite).length}</strong><span>Favourites</span></div>
-          <div><strong>{topProjection ? money(topProjection.monthlyCost) : '—'}</strong><span>Cheapest projected</span></div>
-        </div>
-      </section>
-
-      <section className="tabs">
-        {['catalog', 'projections', 'compare'].map((name) => (
-          <button key={name} className={tab === name ? 'active' : ''} onClick={() => setTab(name as typeof tab)}>
-            {name}
-          </button>
-        ))}
-      </section>
-
-      {tab === 'catalog' && (
-        <>
-          <section className="filters card">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, provider, notes..." />
-            <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-              <option value="">All providers</option>
-              {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <label className="checkbox"><input type="checkbox" checked={favouritesOnly} onChange={(e) => setFavouritesOnly(e.target.checked)} /> Favourites only</label>
-          </section>
-
-          <section className="card table-card">
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Fav</th>
-                    <th onClick={() => { setSort('name'); setDir(sort === 'name' && dir === 'asc' ? 'desc' : 'asc'); }}>Model</th>
-                    <th onClick={() => { setSort('provider'); setDir(sort === 'provider' && dir === 'asc' ? 'desc' : 'asc'); }}>Provider</th>
-                    <th onClick={() => { setSort('price_input'); setDir(sort === 'price_input' && dir === 'asc' ? 'desc' : 'asc'); }}>In</th>
-                    <th onClick={() => { setSort('price_output'); setDir(sort === 'price_output' && dir === 'asc' ? 'desc' : 'asc'); }}>Out</th>
-                    <th>Ctx</th>
-                    <th>Modes</th>
-                    <th>Coding</th>
-                    <th>Thinking</th>
-                    <th>Maths</th>
-                    <th>Overall</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {models.map((m) => (
-                    <tr key={m.id}>
-                      <td><button className="star" onClick={() => toggleFavourite(m.id)}>{m.is_favourite ? '★' : '☆'}</button></td>
-                      <td>
-                        <div className="model-name">{m.name}</div>
-                        <div className="subtle">{m.model_id}</div>
-                      </td>
-                      <td>{m.provider}</td>
-                      <td>{money(m.price_input)}</td>
-                      <td>{money(m.price_output)}</td>
-                      <td>{ctx(m.context_window)}</td>
-                      <td>{m.multimodal ?? 'text'}</td>
-                      <td>{m.score_coding ?? '—'}</td>
-                      <td>{m.score_thinking ?? '—'}</td>
-                      <td>{m.score_maths ?? '—'}</td>
-                      <td>{m.score_overall ?? '—'}</td>
-                      <td className="notes">{m.notes ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-
-      {tab === 'projections' && (
-        <section className="projection-grid">
-          <div className="card controls">
-            <h2>Cost projection</h2>
-            <label>Input tokens / month
-              <input type="number" value={inputTokens} onChange={(e) => setInputTokens(Number(e.target.value))} />
-            </label>
-            <label>Output tokens / month
-              <input type="number" value={outputTokens} onChange={(e) => setOutputTokens(Number(e.target.value))} />
-            </label>
-            <label>Cache hit rate: {cacheHitRate}%
-              <input type="range" min={0} max={90} value={cacheHitRate} onChange={(e) => setCacheHitRate(Number(e.target.value))} />
-            </label>
-            <div className="preset-row">
-              <button onClick={() => { setInputTokens(500000); setOutputTokens(100000); }}>Light</button>
-              <button onClick={() => { setInputTokens(5000000); setOutputTokens(1000000); }}>Moderate</button>
-              <button onClick={() => { setInputTokens(50000000); setOutputTokens(10000000); }}>Heavy</button>
-            </div>
-          </div>
-          <div className="card">
-            <h2>Projected monthly cost</h2>
-            <div className="projection-list">
-              {projections.map((m) => (
-                <div key={m.id} className="projection-row">
-                  <div>
-                    <div className="model-name">{m.name}</div>
-                    <div className="subtle">{m.provider}</div>
-                  </div>
-                  <strong>{money(m.monthlyCost)}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {tab === 'compare' && (
-        <section className="card compare-card">
-          <h2>Benchmark comparison</h2>
-          <p className="subtle">Pick up to 4 models to compare benchmark coverage side-by-side.</p>
-          <div className="compare-picker">
-            <select onChange={(e) => {
-              const id = Number(e.target.value);
-              if (!id || selectedIds.includes(id) || selectedIds.length >= 4) return;
-              setSelectedIds([...selectedIds, id]);
-              e.currentTarget.value = '';
-            }} defaultValue="">
-              <option value="">Add a model…</option>
-              {models.filter((m) => !selectedIds.includes(m.id)).map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-            <div className="selected-tags">
-              {selectedModels.map((m) => (
-                <button key={m.id} className="tag" onClick={() => setSelectedIds(selectedIds.filter((id) => id !== m.id))}>{m.name} ×</button>
-              ))}
-            </div>
-          </div>
-          {selectedModels.length > 0 ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Metric</th>
-                    {selectedModels.map((m) => <th key={m.id}>{m.name}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {benchmarkKeys.map(([key, label]) => (
-                    <tr key={key}>
-                      <td>{label}</td>
-                      {selectedModels.map((m) => <td key={m.id}>{(m as unknown as Record<string, number | null>)[key] ?? '—'}</td>)}
-                    </tr>
-                  ))}
-                  <tr>
-                    <td>Input $/1M</td>
-                    {selectedModels.map((m) => <td key={m.id}>{money(m.price_input)}</td>)}
-                  </tr>
-                  <tr>
-                    <td>Output $/1M</td>
-                    {selectedModels.map((m) => <td key={m.id}>{money(m.price_output)}</td>)}
-                  </tr>
-                  <tr>
-                    <td>Context</td>
-                    {selectedModels.map((m) => <td key={m.id}>{ctx(m.context_window)}</td>)}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          ) : <div className="empty-state">No models selected yet.</div>}
-        </section>
-      )}
-    </main>
-  );
+  const rows = useMemo(() => models.map((model) => ({ model, cost: cost(model, input, output, cache) })), [models, input, output, cache]);
+  const costs = useMemo(() => new Map(rows.map((r) => [r.model.id, r.cost])), [rows]);
+  const matching = useMemo(() => models.filter((m) => {
+    const term = query.toLowerCase(); const searched = !term || [m.name, m.provider, m.model_id, m.notes].some((v) => v?.toLowerCase().includes(term));
+    const caseMatch = useCase === 'all' || (useCase === 'coding' && (evidence(m).coding != null || m.notes?.toLowerCase().includes('coding'))) || (useCase === 'vision' && modes(m).includes('image')) || (useCase === 'reasoning' && Boolean(m.reasoning)) || (useCase === 'long-context' && (m.context_window ?? 0) >= M);
+    return searched && (!provider || m.provider === provider) && (!favourites || Boolean(m.is_favourite)) && (!available || Boolean(m.available_via?.trim())) && (!cap || (m.price_output ?? Infinity) <= Number(cap)) && caseMatch;
+  }).sort((a, b) => sort === 'context' ? (b.context_window ?? 0) - (a.context_window ?? 0) : (costs.get(a.id) ?? Infinity) - (costs.get(b.id) ?? Infinity)), [available, cap, costs, favourites, models, provider, query, sort, useCase]);
+  const selected = models.filter((m) => compare.includes(m.id)); const priced = rows.filter((r): r is { model: Model; cost: number } => r.cost != null).sort((a, b) => a.cost - b.cost); const unavailable = rows.filter((r) => r.cost == null); const baselineCost = costs.get(baseline) ?? null;
+  const setScenario = (i: number, o: number, c: number) => { setInput(i); setOutput(o); setCache(c); sync({ input: String(i), output: String(o), cache: String(c) }); };
+  const chooseView = (next: View) => { setView(next); sync({ view: next === 'discover' ? null : next }); };
+  const toggleCompare = (id: number) => { if (compare.includes(id)) { const next = compare.filter((v) => v !== id); setCompare(next); sync({ compare: next.join(',') || null }); return; } if (compare.length === 4) { setNotice('Compare up to 4 models at once. Remove one to add another.'); return; } const next = [...compare, id]; setCompare(next); sync({ compare: next.join(',') }); setNotice('Model added to comparison.'); };
+  const toggleFavourite = async (id: number) => { const before = models.find((m) => m.id === id); if (!before) return; setModels((all) => all.map((m) => m.id === id ? { ...m, is_favourite: m.is_favourite ? 0 : 1 } : m)); try { const response = await fetch(`/api/models/${id}/favourite`, { method: 'PATCH' }); if (!response.ok) throw new Error(); const saved = await response.json() as Model; setModels((all) => all.map((m) => m.id === id ? saved : m)); setNotice(`${saved.name} ${saved.is_favourite ? 'added to' : 'removed from'} favourites.`); } catch { setModels((all) => all.map((m) => m.id === id ? before : m)); setNotice('Could not update favourites. Try again.'); } };
+  const latest = models.map((m) => m.last_updated).filter((v): v is string => Boolean(v)).sort().at(-1) ?? null;
+  return <main className="app-shell"><a className="skip-link" href="#content">Skip to main content</a>
+    <header className="masthead"><div><p className="eyebrow">Model selection workspace</p><h1>Choose a model with the trade-offs in view.</h1><p className="masthead-copy">Compare capabilities, evidence, and workload cost without treating missing data as an answer.</p></div><dl className="masthead-stats"><div><dt>Models</dt><dd>{models.length}</dd></div><div><dt>Fully priced</dt><dd>{priced.length}</dd></div><div><dt>Data status</dt><dd>{updated(latest)}</dd></div></dl></header>
+    <nav className="primary-nav" aria-label="Dashboard views">{([['discover', 'Discover models'], ['planner', 'Cost planner'], ['compare', `Compare${compare.length ? ` (${compare.length})` : ''}`]] as [View, string][]).map(([key, label]) => <button type="button" key={key} aria-current={view === key ? 'page' : undefined} className={view === key ? 'nav-active' : ''} onClick={() => chooseView(key)}>{label}</button>)}</nav><p className="sr-only" aria-live="polite">{notice}</p>
+    <div id="content" className="main-content" tabIndex={-1}>{view === 'discover' && <>
+      <section className="decision-panel"><div><p className="eyebrow">Start with the task</p><h2>Build a shortlist.</h2></div><div className="quick-starts" aria-label="Quick starts">{([['all', 'All models'], ['coding', 'Coding'], ['vision', 'Vision'], ['reasoning', 'Reasoning'], ['long-context', 'Long context']] as [UseCase, string][]).map(([key, label]) => <button type="button" key={key} className={useCase === key ? 'selected' : ''} onClick={() => { setUseCase(key); sync({ use: key === 'all' ? null : key }); }}>{label}</button>)}</div></section>
+      <section className="filter-panel" aria-label="Model filters"><Field label="Search models" id="search"><input id="search" name="search" autoComplete="off" value={query} onChange={(e) => { setQuery(e.target.value); sync({ q: e.target.value || null }); }} placeholder="Name, provider, or note…" /></Field><Field label="Provider" id="provider"><select id="provider" name="provider" value={provider} onChange={(e) => { setProvider(e.target.value); sync({ provider: e.target.value || null }); }}><option value="">All providers</option>{providers.map((v) => <option key={v}>{v}</option>)}</select></Field><Field label="Maximum output price / 1M" id="cap"><input id="cap" name="cap" autoComplete="off" type="number" min="0" step="0.01" value={cap} onChange={(e) => { setCap(e.target.value); sync({ cap: e.target.value || null }); }} placeholder="No cap" /></Field><Field label="Sort results" id="sort"><select id="sort" name="sort" value={sort} onChange={(e) => { const next = e.target.value as 'cost' | 'context'; setSort(next); sync({ sort: next }); }}><option value="cost">Workload cost</option><option value="context">Context window</option></select></Field><label className="check-field"><input type="checkbox" checked={favourites} onChange={(e) => { setFavourites(e.target.checked); sync({ favourites: e.target.checked ? '1' : null }); }} /> Favourites only</label><label className="check-field"><input type="checkbox" checked={available} onChange={(e) => { setAvailable(e.target.checked); sync({ available: e.target.checked ? '1' : null }); }} /> Available in a configured lane</label></section>
+      <section className="results-section"><div className="section-heading"><div><p className="eyebrow">{useCase === 'all' ? 'All models' : useCase.replace('-', ' ')}</p><h2>{matching.length} matching models</h2></div><p>{updated(latest)}. Prices are per 1M tokens.</p></div>{matching.length ? <div className="model-grid">{matching.map((m) => <ModelCard key={m.id} model={m} monthly={costs.get(m.id) ?? null} selected={compare.includes(m.id)} useCase={useCase} onDetail={() => setDetail(m)} onCompare={() => toggleCompare(m.id)} onFavourite={() => toggleFavourite(m.id)} />)}</div> : <Empty onClear={() => { setQuery(''); setProvider(''); setUseCase('all'); setCap(''); setFavourites(false); setAvailable(false); sync({ q: null, provider: null, use: null, cap: null, favourites: null, available: null }); }} />}</section>
+    </>}{view === 'planner' && <section className="planner-layout"><div className="planner-controls"><p className="eyebrow">Scenario inputs</p><h2>Cost planner</h2><p>Rank only models with complete pricing for this workload.</p><div className="scenario-buttons"><button type="button" onClick={() => setScenario(500_000, 100_000, 20)}>Light</button><button type="button" onClick={() => setScenario(5_000_000, 1_000_000, 30)}>Default</button><button type="button" onClick={() => setScenario(50_000_000, 10_000_000, 50)}>Heavy</button></div><Field label="Input tokens / month" id="input"><input id="input" name="input" type="number" min="0" value={input} onChange={(e) => { const v = Math.max(0, Number(e.target.value)); setInput(v); sync({ input: String(v) }); }} /></Field><Field label="Output tokens / month" id="output"><input id="output" name="output" type="number" min="0" value={output} onChange={(e) => { const v = Math.max(0, Number(e.target.value)); setOutput(v); sync({ output: String(v) }); }} /></Field><Field label={`Cache hit rate: ${cache}%`} id="cache"><input id="cache" name="cache" type="range" min="0" max="90" value={cache} onChange={(e) => { const v = Number(e.target.value); setCache(v); sync({ cache: String(v) }); }} /></Field><Field label="Monthly budget (optional)" id="budget"><input id="budget" name="budget" type="number" min="0" step="0.01" value={budget} onChange={(e) => { setBudget(e.target.value); sync({ budget: e.target.value || null }); }} placeholder="No budget" /></Field><Field label="Compare with baseline" id="baseline"><select id="baseline" name="baseline" value={baseline} onChange={(e) => { const v = Number(e.target.value); setBaseline(v); sync({ baseline: v ? String(v) : null }); }}><option value="0">No baseline</option>{priced.map(({ model }) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></Field></div><div className="planner-results"><div className="section-heading"><div><p className="eyebrow">Viable models</p><h2>{priced.length} fully priced options</h2></div><p>{input.toLocaleString('en-US')} input + {output.toLocaleString('en-US')} output tokens / month</p></div><div className="projection-list">{priced.map(({ model, cost: total }) => <article className="projection-row" key={model.id}><div><p className="provider-name">{model.provider}</p><h3>{model.name}</h3><p>{context(model.context_window)} context · {modes(model).join(', ')}</p></div><div className="projection-cost"><strong>{money(total)}</strong><span>{budget && total > Number(budget) ? 'Over budget' : baselineCost == null ? 'Per month' : `${total <= baselineCost ? 'Saves' : 'Costs'} ${money(Math.abs(total - baselineCost))} vs baseline`}</span></div><button type="button" onClick={() => toggleCompare(model.id)}>{compare.includes(model.id) ? 'In compare' : 'Compare'}</button></article>)}</div>{unavailable.length ? <section className="unavailable-pricing"><h3>Pricing unavailable for {unavailable.length} models</h3><p>These models are excluded from cost rankings because at least one required price is missing.</p></section> : null}</div></section>}{view === 'compare' && <section className="compare-view"><div className="section-heading"><div><p className="eyebrow">Shortlist</p><h2>Compare finalists</h2></div><p>Select 2-4 models from discovery or cost planning.</p></div>{selected.length ? <div className="comparison-table-wrap"><table><caption className="sr-only">Selected model comparison</caption><thead><tr><th scope="col">Metric</th>{selected.map((m) => <th scope="col" key={m.id}>{m.name}<button type="button" className="remove-selection" onClick={() => toggleCompare(m.id)}>Remove</button></th>)}</tr></thead><tbody><CompareRow label="Provider" models={selected} value={(m) => m.provider} /><CompareRow label="Estimated monthly cost" models={selected} value={(m) => costs.get(m.id) == null ? 'Pricing unavailable' : money(costs.get(m.id) ?? null)} /><CompareRow label="Input / 1M" models={selected} value={(m) => money(m.price_input)} /><CompareRow label="Output / 1M" models={selected} value={(m) => money(m.price_output)} /><CompareRow label="Context" models={selected} value={(m) => context(m.context_window)} /><CompareRow label="Capabilities" models={selected} value={(m) => [m.reasoning ? 'reasoning' : '', ...modes(m)].filter(Boolean).join(', ')} /><CompareRow label="Coding evidence" models={selected} value={(m) => score(evidence(m).coding)} /><CompareRow label="Thinking evidence" models={selected} value={(m) => score(evidence(m).thinking)} /><CompareRow label="Source" models={selected} value={(m) => m.source_url ? <a href={m.source_url} target="_blank" rel="noreferrer">Open source</a> : 'Source unavailable'} /></tbody></table></div> : <div className="empty-state"><h3>No models in comparison yet.</h3><p>Add candidates from Discover models or Cost planner.</p><button type="button" onClick={() => chooseView('discover')}>Discover models</button></div>}</section>}</div>
+    {detail && <Detail model={detail} monthly={cost(detail, input, output, cache)} onClose={() => setDetail(null)} />}{selected.length > 0 && <aside className="comparison-rail" aria-label="Comparison shortlist"><div><p className="eyebrow">Comparison shortlist</p><strong>{selected.length} of 4 selected</strong><div className="selected-models">{selected.map((m) => <button type="button" key={m.id} onClick={() => toggleCompare(m.id)}>{m.name} <span aria-hidden="true">×</span></button>)}</div></div><button type="button" onClick={() => chooseView('compare')}>Compare models</button></aside>}</main>;
 }
+function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) { return <div className="field"><label htmlFor={id}>{label}</label>{children}</div>; }
+function Empty({ onClear }: { onClear: () => void }) { return <div className="empty-state"><h3>No models match these filters.</h3><p>Try removing a price cap or selecting a different task.</p><button type="button" onClick={onClear}>Clear filters</button></div>; }
+function ModelCard({ model, monthly, selected, useCase, onDetail, onCompare, onFavourite }: { model: Model; monthly: number | null; selected: boolean; useCase: UseCase; onDetail: () => void; onCompare: () => void; onFavourite: () => void }) { const description = monthly == null ? 'Pricing needs confirmation' : useCase === 'vision' ? `Vision-capable at ${money(monthly)}/month` : useCase === 'long-context' ? `${context(model.context_window)} context · ${money(monthly)}/month` : `${model.reasoning ? 'Reasoning-capable' : 'General-purpose'} · ${money(monthly)}/month`; return <article className="model-card"><div className="model-card-header"><div><p className="provider-name">{model.provider}</p><h3>{model.name}</h3></div><button type="button" className={model.is_favourite ? 'favourite is-favourite' : 'favourite'} aria-pressed={Boolean(model.is_favourite)} aria-label={`${model.is_favourite ? 'Remove' : 'Add'} ${model.name} ${model.is_favourite ? 'from' : 'to'} favourites`} onClick={onFavourite}>{model.is_favourite ? 'Saved' : 'Save'}</button></div><p className="model-recommendation">{description}</p><div className="model-metrics"><span><b>In</b>{money(model.price_input)}</span><span><b>Out</b>{money(model.price_output)}</span><span><b>Context</b>{context(model.context_window)}</span></div><div className="tag-row">{model.reasoning ? <span className="tag">Reasoning</span> : null}{modes(model).filter((v) => v !== 'text').map((v) => <span className="tag" key={v}>{v}</span>)}{model.available_via?.trim() ? <span className="tag">Available</span> : null}</div><div className="card-actions"><button type="button" onClick={onDetail}>View details</button><button type="button" className={selected ? 'compare-added' : ''} aria-pressed={selected} onClick={onCompare}>{selected ? 'Remove compare' : 'Add to compare'}</button></div></article>; }
+function Detail({ model, monthly, onClose }: { model: Model; monthly: number | null; onClose: () => void }) { const e = evidence(model); return <aside className="detail-drawer" role="dialog" aria-modal="false" aria-labelledby="detail-title"><div className="drawer-header"><div><p className="eyebrow">Model detail</p><h2 id="detail-title">{model.name}</h2><p>{model.provider} · {model.model_id}</p></div><button type="button" className="drawer-close" onClick={onClose}>Close</button></div><div className="drawer-content"><section><h3>Scenario cost</h3><strong className="detail-cost">{monthly == null ? 'Pricing unavailable' : `${money(monthly)} / month`}</strong><p>Input {money(model.price_input)}/1M · Output {money(model.price_output)}/1M · Cache read {money(model.price_cache_read)}/1M</p></section><section><h3>Capabilities</h3><div className="tag-row">{model.reasoning ? <span className="tag">Reasoning</span> : null}{modes(model).map((v) => <span className="tag" key={v}>{v}</span>)}<span className="tag">{context(model.context_window)} context</span></div></section><section><h3>Evidence</h3><dl className="evidence-list"><div><dt>Coding</dt><dd>{score(e.coding)}</dd></div><div><dt>Thinking</dt><dd>{score(e.thinking)}</dd></div><div><dt>Maths</dt><dd>{score(e.maths)}</dd></div><div><dt>Updated</dt><dd>{updated(model.last_updated)}</dd></div></dl></section><section><h3>Notes</h3><p>{model.notes ?? 'No decision note recorded.'}</p>{model.source_url && <a href={model.source_url} target="_blank" rel="noreferrer">Open pricing or provider source</a>}</section></div></aside>; }
+function CompareRow({ label, models, value }: { label: string; models: Model[]; value: (model: Model) => ReactNode }) { return <tr><th scope="row">{label}</th>{models.map((m) => <td key={m.id}>{value(m)}</td>)}</tr>; }

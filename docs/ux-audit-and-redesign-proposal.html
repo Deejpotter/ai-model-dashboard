@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f8">
+  <title>AI Model Dashboard - UX Audit & Redesign Proposal</title>
+  <style>
+    :root { --paper:#f7f7f8; --ink:#111111; --muted:#5d5d62; --rule:#c9c9ce; --red:#e4002b; --soft:#ececef; --alert:#fff1f3; --max:1280px; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:Arial, Helvetica, sans-serif; line-height:1.45; }
+    a { color:inherit; text-decoration-color:var(--red); text-decoration-thickness:2px; text-underline-offset:3px; }
+    a:hover { color:var(--red); }
+    a:focus-visible, summary:focus-visible { outline:3px solid var(--red); outline-offset:3px; }
+    .page { max-width:var(--max); margin:auto; padding:0 32px 72px; }
+    .masthead { display:grid; grid-template-columns:2fr 1fr; border-bottom:2px solid var(--ink); min-height:286px; }
+    .eyebrow, .meta, .section-no, th, .chip, .approval label { font-size:.72rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .intro { padding:28px 28px 32px 0; border-right:1px solid var(--ink); display:flex; flex-direction:column; justify-content:space-between; }
+    .eyebrow { color:var(--red); }
+    h1 { max-width:750px; margin:48px 0 18px; font-size:clamp(3rem,8vw,7.4rem); line-height:.86; letter-spacing:-.08em; font-weight:700; }
+    .subtitle { max-width:640px; font-size:1.22rem; line-height:1.4; margin:0; }
+    .folio { padding:28px 0 28px 28px; display:flex; flex-direction:column; justify-content:space-between; }
+    .folio strong { display:block; margin-top:5px; font-size:1.05rem; }
+    .folio-no { color:var(--red); font-size:clamp(5rem,12vw,10rem); line-height:.75; font-weight:700; letter-spacing:-.1em; text-align:right; }
+    .jump { display:flex; gap:18px; flex-wrap:wrap; padding:13px 0; border-bottom:1px solid var(--rule); font-size:.84rem; }
+    .jump a { text-decoration:none; }
+    section { border-bottom:1px solid var(--rule); padding:54px 0; }
+    .section-head { display:grid; grid-template-columns:150px minmax(0,1fr); gap:25px; margin-bottom:30px; }
+    .section-no { color:var(--red); padding-top:8px; }
+    h2 { margin:0; max-width:800px; font-size:clamp(1.85rem,3.5vw,3.3rem); letter-spacing:-.055em; line-height:.98; }
+    h3 { margin:30px 0 10px; font-size:1.08rem; }
+    p { margin:0 0 14px; max-width:840px; }
+    .lede { font-size:1.15rem; line-height:1.5; }
+    .decision { border:2px solid var(--ink); display:grid; grid-template-columns:1.2fr 1fr; margin-top:26px; }
+    .decision > div { padding:24px; }
+    .decision > div + div { border-left:1px solid var(--ink); background:var(--ink); color:white; }
+    .decision h3 { margin:0 0 10px; font-size:1.25rem; }
+    .approval-list { list-style:none; margin:0; padding:0; }
+    .approval-list li { display:grid; grid-template-columns:20px 1fr; gap:10px; margin:12px 0; }
+    .box { width:15px; height:15px; border:1px solid currentColor; margin-top:4px; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); border-top:2px solid var(--ink); border-bottom:2px solid var(--ink); margin:30px 0; }
+    .metric { min-height:128px; padding:18px; border-right:1px solid var(--ink); display:flex; flex-direction:column; justify-content:space-between; }
+    .metric:last-child { border-right:0; }
+    .metric strong { font-size:3.6rem; line-height:.8; letter-spacing:-.08em; }
+    .metric span { max-width:170px; font-size:.82rem; }
+    table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    th { text-align:left; vertical-align:bottom; padding:0 12px 10px 0; }
+    td { vertical-align:top; padding:14px 20px 14px 0; border-top:1px solid var(--rule); }
+    .evidence td:first-child { width:22%; font-weight:700; }
+    .evidence td:nth-child(2) { width:42%; }
+    .priority { display:grid; grid-template-columns:100px minmax(0,1fr); gap:24px; border-top:2px solid var(--ink); padding:23px 0; }
+    .priority + .priority { border-top:1px solid var(--rule); }
+    .priority-label { color:var(--red); font-size:1.5rem; letter-spacing:-.06em; font-weight:700; }
+    .priority h3 { margin:0 0 8px; font-size:1.35rem; letter-spacing:-.03em; }
+    .callout { background:var(--alert); border-left:6px solid var(--red); padding:18px 22px; margin-top:18px; }
+    .callout strong { display:block; margin-bottom:5px; }
+    .architecture { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--ink); margin-top:28px; }
+    .architecture article { min-height:245px; padding:20px; border-right:1px solid var(--ink); }
+    .architecture article:last-child { border-right:0; }
+    .architecture h3 { margin:0 0 44px; font-size:1.1rem; }
+    .architecture p { font-size:.9rem; }
+    .architecture .number { color:var(--red); font-size:3rem; line-height:.9; font-weight:700; letter-spacing:-.08em; }
+    .scope { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+    .scope-card { border-top:3px solid var(--ink); padding-top:14px; }
+    .scope-card h3 { margin:0 0 12px; font-size:1.5rem; letter-spacing:-.05em; }
+    .scope-card ul, .plain-list { padding-left:18px; margin:0; }
+    .scope-card li, .plain-list li { margin-bottom:9px; }
+    details { border-top:1px solid var(--rule); padding:13px 0; }
+    details:last-child { border-bottom:1px solid var(--rule); }
+    summary { cursor:pointer; font-weight:700; }
+    details p { margin:10px 0 0; }
+    .requirements { display:grid; grid-template-columns:repeat(2,1fr); gap:26px; }
+    .requirements > div { border-top:2px solid var(--ink); padding-top:14px; }
+    .requirements h3 { margin:0 0 10px; }
+    .timeline { display:grid; grid-template-columns:repeat(6,1fr); gap:0; border-top:2px solid var(--ink); border-bottom:2px solid var(--ink); margin-top:28px; }
+    .timeline div { min-height:132px; padding:16px; border-right:1px solid var(--ink); }
+    .timeline div:last-child { border-right:0; }
+    .timeline b { display:block; color:var(--red); font-size:1.4rem; letter-spacing:-.05em; }
+    .references { font-size:.84rem; }
+    .references li { margin-bottom:11px; }
+    footer { padding-top:22px; display:flex; justify-content:space-between; gap:20px; color:var(--muted); font-size:.82rem; }
+    @media (max-width:800px) {
+      .page { padding:0 18px 44px; }
+      .masthead, .decision, .scope, .requirements { grid-template-columns:1fr; }
+      .intro { border-right:0; border-bottom:1px solid var(--ink); }
+      .folio { padding-left:0; min-height:180px; }
+      .folio-no { text-align:left; }
+      .section-head, .priority { grid-template-columns:1fr; gap:8px; }
+      .metrics, .architecture { grid-template-columns:repeat(2,1fr); }
+      .metric:nth-child(2), .architecture article:nth-child(2) { border-right:0; }
+      .metric:nth-child(-n+2), .architecture article:nth-child(-n+2) { border-bottom:1px solid var(--ink); }
+      .decision > div + div { border-left:0; border-top:1px solid var(--ink); }
+      .architecture article { min-height:190px; }
+      .timeline { grid-template-columns:repeat(2,1fr); }
+      .timeline div:nth-child(2n) { border-right:0; }
+      .timeline div:nth-child(-n+4) { border-bottom:1px solid var(--ink); }
+      .evidence { display:block; overflow-x:auto; }
+      .evidence table { min-width:680px; }
+    }
+    @media (max-width:460px) { .metrics, .architecture { grid-template-columns:1fr; } .metric, .architecture article { border-right:0 !important; border-bottom:1px solid var(--ink); } .metric:last-child, .architecture article:last-child { border-bottom:0; } }
+    @media print { body { background:#fff; } .page { max-width:none; padding:0; } .jump { display:none; } section { break-inside:avoid; } a { text-decoration:none; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div class="intro">
+        <div class="eyebrow">AI Model Dashboard / Approval report</div>
+        <div>
+          <h1>Make the choice, not the spreadsheet.</h1>
+          <p class="subtitle">A UX audit and redesign proposal for turning a useful model catalogue into a reliable decision tool.</p>
+        </div>
+        <div class="meta">Prepared for Deej &nbsp; / &nbsp; 18 October 2026 &nbsp; / &nbsp; Proposed</div>
+      </div>
+      <aside class="folio">
+        <div><span class="eyebrow">Document status</span><strong>Approval required before implementation</strong></div>
+        <div class="folio-no">01</div>
+      </aside>
+    </header>
+
+    <nav class="jump" aria-label="Report sections">
+      <a href="#decision">Approval</a><a href="#evidence">Evidence</a><a href="#diagnosis">Diagnosis</a><a href="#architecture">Direction</a><a href="#scope">Scope</a><a href="#criteria">Success</a><a href="#references">References</a>
+    </nav>
+
+    <section id="decision">
+      <div class="section-head"><div class="section-no">01 / Decision</div><div><h2>Approve a decision-first redesign, not a cosmetic table refresh.</h2></div></div>
+      <p class="lede">The current product has the right data and useful capabilities. Its primary interface still requires the user to interpret a dense 12-column table before answering the questions the product exists to answer: which model should I use, why, and what will it cost?</p>
+      <div class="decision">
+        <div><h3>Recommendation</h3><p>Replace the table-first default with guided discovery, compact decision cards, model detail on demand, a persistent comparison tray, and scenario-based cost planning.</p><p>This keeps the advanced data available without making it the first obstacle in every decision.</p></div>
+        <div><h3>Approval checklist</h3><ul class="approval-list"><li><span class="box"></span><span>Decision-first information architecture</span></li><li><span class="box"></span><span>Unknown pricing is never treated as $0</span></li><li><span class="box"></span><span>URL-persisted filters, scenarios, and comparisons</span></li><li><span class="box"></span><span>Accessibility baseline in Phase 1</span></li></ul></div>
+      </div>
+    </section>
+
+    <section id="evidence">
+      <div class="section-head"><div class="section-no">02 / Evidence</div><div><h2>The dashboard is data-rich, but decision-poor.</h2></div></div>
+      <div class="metrics" aria-label="Audit metrics"><div class="metric"><strong>25</strong><span>models in the seeded catalogue</span></div><div class="metric"><strong>12</strong><span>columns in the default catalogue table</span></div><div class="metric"><strong>4/4</strong><span>derived score columns empty for all current models</span></div><div class="metric"><strong>P0</strong><span>missing price can be ranked as cheapest</span></div></div>
+      <div class="evidence"><table><thead><tr><th>Evidence</th><th>Observed state</th><th>Why it matters</th></tr></thead><tbody>
+        <tr><td>Live product</td><td>The primary view lists 25 models in a wide table with three pill controls: catalogue, projections, and compare. <a href="https://ai.deejpotter.com/">View live dashboard</a></td><td>It starts with scanning data instead of selecting a task or decision.</td></tr>
+        <tr><td>Current dataset</td><td>All 25 local rows are missing coding, thinking, maths, and overall category scores; all 25 have input and output prices.</td><td>Four prominently displayed columns render as em dashes across the catalogue.</td></tr>
+        <tr><td>Projection formula</td><td>Null prices are coalesced to zero. <a href="../src/components/Dashboard.tsx#L95-L104">Read the cost calculation</a></td><td>Missing pricing can create a false lowest-cost result.</td></tr>
+        <tr><td>Trust metadata</td><td>The schema stores source URL, updated/last-seen timestamps, and availability, but the interface does not show them. <a href="../src/db/schema.sql">Read the schema</a></td><td>Users cannot judge freshness or trace a value to its source.</td></tr>
+        <tr><td>Control semantics</td><td>Search and provider controls have no programmatic labels; sortable headers are clickable table cells; favourite stars are unnamed. <a href="../src/components/Dashboard.tsx#L130-L161">Read the controls</a></td><td>Important interactions are unclear to keyboard and assistive-technology users.</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="diagnosis">
+      <div class="section-head"><div class="section-no">03 / Diagnosis</div><div><h2>Six changes will make the experience materially more useful.</h2></div></div>
+      <article class="priority"><div class="priority-label">P0</div><div><h3>Correct the pricing truth model</h3><p>The calculator turns absent input, cache, or output price into zero. <a href="../src/components/Dashboard.tsx#L95-L104">The implementation confirms this behaviour.</a> Price absence must mean <strong>Pricing unavailable</strong>, not $0 and never “cheapest.”</p><div class="callout"><strong>Required behaviour</strong>Exclude incomplete pricing from lowest-cost claims; show it separately with the missing component identified.</div></div></article>
+      <article class="priority"><div class="priority-label">P0</div><div><h3>Make the catalogue a shortlist tool</h3><p>The current view always renders notes, model IDs, modes, prices, and four score columns together. <a href="../src/components/Dashboard.tsx#L141-L179">The catalogue markup confirms the 12-field layout.</a> Show only decision-critical information initially; make the rest available in a detail drawer.</p></div></article>
+      <article class="priority"><div class="priority-label">P0</div><div><h3>Start with intent, not raw filters</h3><p>Search, provider, and favourites are the only current catalogue filters. <a href="../src/components/Dashboard.tsx#L130-L137">View the filter controls.</a> Add coding, vision, reasoning, context, availability, provider, and price filters, with quick starts for common choices.</p></div></article>
+      <article class="priority"><div class="priority-label">P1</div><div><h3>Move comparison into the main journey</h3><p>Comparison begins from a long native select menu in a separate view. <a href="../src/components/Dashboard.tsx#L221-L274">View the current comparison flow.</a> A persistent tray should allow users to add candidates as they browse, then compare two to four finalists.</p></div></article>
+      <article class="priority"><div class="priority-label">P1</div><div><h3>Expose data confidence and feedback</h3><p>Loading, error, source, freshness, and post-favourite feedback are absent. The client holds filters, active view, scenario values, and comparisons only in memory. <a href="../src/components/Dashboard.tsx#L57-L88">View the current state model.</a></p></div></article>
+      <article class="priority"><div class="priority-label">P1</div><div><h3>Repair the accessibility baseline</h3><p>Form controls need labels, and keyboard-operable controls need visible focus indicators (<a href="https://www.w3.org/WAI/tutorials/forms/labels/">World Wide Web Consortium, 2024</a>; <a href="https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html">World Wide Web Consortium, 2026a</a>). The tab-like controls should either follow the expected tab pattern or become regular view navigation (<a href="https://www.w3.org/WAI/ARIA/apg/patterns/tabs/">World Wide Web Consortium, 2026b</a>).</p></div></article>
+    </section>
+
+    <section id="architecture">
+      <div class="section-head"><div class="section-no">04 / Direction</div><div><h2>One product, four decision surfaces.</h2></div></div>
+      <p class="lede">The redesign keeps every useful capability but orders it around the user’s actual choices. Raw data remains available, but it no longer dominates the first screen.</p>
+      <div class="architecture"><article><div class="number">01</div><h3>Discover Models</h3><p>Quick starts and filters form a shortlist by task, capability, cost, context, provider, and availability.</p></article><article><div class="number">02</div><h3>Model Detail</h3><p>An on-demand drawer holds price breakdown, evidence, source, freshness, notes, and advanced metadata.</p></article><article><div class="number">03</div><h3>Compare</h3><p>A global tray carries finalists between views, then opens a focused cost/capability/evidence comparison.</p></article><article><div class="number">04</div><h3>Cost Planner</h3><p>Named workload scenarios show viable fully priced models, budget impact, and baseline savings.</p></article></div>
+      <h3>Design principle</h3><p>Every recommendation should say what it optimised for. Example: “Lowest fully priced vision option for this workload” rather than a vague “best model” badge. Missing or stale evidence must remain visible.</p>
+    </section>
+
+    <section id="scope">
+      <div class="section-head"><div class="section-no">05 / Scope</div><div><h2>Build the reliable core first, then the decision accelerators.</h2></div></div>
+      <div class="scope"><div class="scope-card"><h3>Phase 1: Decision foundation</h3><ul><li>Responsive catalogue cards/list and progressive filters</li><li>Quick starts for task, price, and availability</li><li>Accessible model detail drawer</li><li>Persistent comparison tray and comparison screen</li><li>Unknown-pricing, loading, error, empty, and success states</li><li>URL state for filters, comparison, view, and scenario inputs</li><li>Semantic controls, focus treatment, keyboard support, live feedback</li></ul></div><div class="scope-card"><h3>Phase 2: Decision tools</h3><ul><li>Named workload scenarios, budgets, and baselines</li><li>Transparent rule-based ranking with visible rationale</li><li>Coverage, freshness, and source-confidence badges</li><li>Optional saved views, subject to a separate persistence decision</li><li>Refined comparison emphasis for meaningful deltas</li></ul></div></div>
+      <h3>Not in scope</h3><p>No silent automatic recommendation for production use; no claim that a benchmark predicts all real-world performance; no provider purchasing or usage actions; no auth or multi-user collaboration; no full visual rebrand.</p>
+      <h3>Deployment credential policy</h3><p>If a later approved integration needs a provider key, it will run server-side and receive its secret through Coolify environment variables. Existing credentials may be sourced from the Krasus environment file, but keys will never be committed, displayed in the UI, copied into this report, or sent to the browser. Production variable changes remain deferred until the specific integration and deployment are approved.</p>
+    </section>
+
+    <section id="criteria">
+      <div class="section-head"><div class="section-no">06 / Success</div><div><h2>The redesign is approved when users can make a defensible choice quickly.</h2></div></div>
+      <div class="requirements"><div><h3>User outcomes</h3><ol><li>Find fully priced vision models under an output-price ceiling in two filter interactions or fewer.</li><li>Add two models to comparison directly from discovery.</li><li>Identify the cheapest fully priced viable model for a workload and inspect the calculation.</li><li>Open a copied URL and recover the selected view, filters, candidates, and scenario.</li><li>Tell whether a value is unavailable, stale, or traceable to a source.</li></ol></div><div><h3>Quality baseline</h3><ol><li>Every form control has a visible label or correct accessible name.</li><li>Every interactive control has visible keyboard focus.</li><li>Sort, favourite, compare, drawer, and navigation controls are keyboard-operable.</li><li>Every asynchronous state provides loading, error, and success feedback.</li><li>No essential mobile action requires horizontal page scrolling.</li><li><code>npm run lint</code> passes before deployment.</li></ol></div></div>
+    </section>
+
+    <section>
+      <div class="section-head"><div class="section-no">07 / Sequence</div><div><h2>Implementation after approval.</h2></div></div>
+      <div class="timeline"><div><b>01</b>Define data rules and test incomplete pricing.</div><div><b>02</b>Build state, feedback, and accessibility primitives.</div><div><b>03</b>Replace table-first catalogue with cards and detail.</div><div><b>04</b>Add comparison tray and focused comparison.</div><div><b>05</b>Rebuild projections as Cost Planner.</div><div><b>06</b>Verify keyboard, responsive, lint, build, and review.</div></div>
+    </section>
+
+    <section id="references">
+      <div class="section-head"><div class="section-no">08 / Sources</div><div><h2>References</h2></div></div>
+      <ol class="references"><li>AI Model Dashboard. (2026). <em>Live production application</em>. <a href="https://ai.deejpotter.com/">https://ai.deejpotter.com/</a></li><li>AI Model Dashboard source. (2026). <em>Dashboard component, model API route, database schema, and synchronisation script</em>. Internal repository.</li><li>World Wide Web Consortium. (2024). <em>Labeling controls</em>. Web Accessibility Initiative. <a href="https://www.w3.org/WAI/tutorials/forms/labels/">https://www.w3.org/WAI/tutorials/forms/labels/</a></li><li>World Wide Web Consortium. (2026a). <em>Understanding Success Criterion 2.4.7: Focus visible</em>. Web Accessibility Initiative. <a href="https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html">https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html</a></li><li>World Wide Web Consortium. (2026b). <em>Tabs pattern</em>. WAI-ARIA Authoring Practices Guide. <a href="https://www.w3.org/WAI/ARIA/apg/patterns/tabs/">https://www.w3.org/WAI/ARIA/apg/patterns/tabs/</a></li></ol>
+    </section>
+    <footer><span>AI Model Dashboard / UX Audit & Redesign Proposal</span><span>Prepared 18 October 2026</span></footer>
+  </main>
+</body>
+</html>
