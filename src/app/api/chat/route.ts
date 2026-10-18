@@ -25,6 +25,7 @@ async function compatibleChat(baseUrl: string, apiKey: string, model: string, me
 
 export async function POST(request: Request) {
   try {
+    const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     const body = await request.json() as { modelId?: number; messages?: Message[] };
     const modelId = typeof body.modelId === 'number' && Number.isInteger(body.modelId) ? body.modelId : undefined;
     const model = modelId == null ? undefined : getModel(modelId);
@@ -45,9 +46,9 @@ export async function POST(request: Request) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof data.error?.message === 'string' ? data.error.message : `Provider returned ${response.status}.`);
       content = textFrom(data.content);
-    } else if (model.provider === 'Google' && process.env.GEMINI_API_KEY) {
+    } else if (model.provider === 'Google' && geminiApiKey) {
       const modelName = model.model_id.replace(/^google\//, '');
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents: messages.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })), generationConfig: { maxOutputTokens: 512, temperature: 0.2 } }) });
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents: messages.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })), generationConfig: { maxOutputTokens: 512, temperature: 0.2 } }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof data.error?.message === 'string' ? data.error.message : `Provider returned ${response.status}.`);
       content = textFrom(data.candidates?.[0]?.content?.parts);
