@@ -10,10 +10,10 @@ function textFrom(value: unknown): string {
   return '';
 }
 
-async function compatibleChat(baseUrl: string, apiKey: string, model: string, messages: Message[]) {
+async function compatibleChat(baseUrl: string, apiKey: string, model: string, messages: Message[], extraHeaders: Record<string, string> = {}) {
   const response = await fetch(baseUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...extraHeaders },
     body: JSON.stringify({ model, messages, max_tokens: 512, temperature: 0.2 }),
   });
   const data = await response.json().catch(() => ({}));
@@ -26,7 +26,7 @@ async function compatibleChat(baseUrl: string, apiKey: string, model: string, me
 export async function POST(request: Request) {
   try {
     const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    const body = await request.json() as { modelId?: number; messages?: Message[] };
+    const body = await request.json() as { modelId?: number; messages?: Message[]; sessionId?: string };
     const modelId = typeof body.modelId === 'number' && Number.isInteger(body.modelId) ? body.modelId : undefined;
     const model = modelId == null ? undefined : getModel(modelId);
     const messages = Array.isArray(body.messages) ? body.messages.filter((m): m is Message => Boolean(m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')).slice(-12) : [];
@@ -40,7 +40,11 @@ export async function POST(request: Request) {
     } else if (model.provider === 'OpenCode Zen' && process.env.OPENCODE_API_KEY) {
       content = await compatibleChat('https://opencode.ai/zen/v1/chat/completions', process.env.OPENCODE_API_KEY, model.model_id.replace(/^opencode\//, ''), messages);
     } else if (model.provider === 'OpenCode Go' && process.env.OPENCODE_API_KEY) {
-      content = await compatibleChat('https://opencode.ai/zen/go/v1/chat/completions', process.env.OPENCODE_API_KEY, model.model_id.replace(/^opencode-go\//, ''), messages);
+      const sessionId = typeof body.sessionId === 'string' && body.sessionId.length >= 8 && body.sessionId.length <= 200 ? body.sessionId : crypto.randomUUID();
+      content = await compatibleChat('https://opencode.ai/zen/go/v1/chat/completions', process.env.OPENCODE_API_KEY, model.model_id.replace(/^opencode-go\//, ''), messages, {
+        'user-agent': 'ai-model-dashboard/1.0',
+        'x-opencode-session': sessionId,
+      });
     } else if (model.provider === 'Anthropic' && process.env.ANTHROPIC_API_KEY) {
       const response = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: model.model_id.replace(/^anthropic\//, ''), max_tokens: 512, messages }) });
       const data = await response.json().catch(() => ({}));
