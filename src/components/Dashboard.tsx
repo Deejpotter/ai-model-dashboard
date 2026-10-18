@@ -12,7 +12,7 @@ const modes = (m: Model) => (m.multimodal || 'text').split(',').map((v) => v.tri
 const avg = (values: Array<number | null | undefined>) => { const xs = values.filter((v): v is number => v != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
 const evidence = (m: Model) => ({ coding: m.score_coding ?? avg([m.swe_verified, m.livecode_bench]), thinking: m.score_thinking ?? avg([m.gpqa_diamond, m.hle]) });
 const isCodingModel = (m: Model) => evidence(m).coding != null || /\b(code|coder|codex|devstral|codestral|program|swe|software)\b/i.test(`${m.name} ${m.model_id} ${m.notes ?? ''}`);
-const isFreeModel = (m: Model) => m.price_input === 0 && m.price_output === 0;
+const isFreeModel = (m: Model) => m.price_input === 0 && m.price_output === 0 || /\bfree\b/i.test(`${m.model_id} ${m.name}`);
 const perfScore = (m: Model) => { const xs = [m.score_coding, m.score_thinking, m.score_maths].filter((v): v is number => v != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
 const effSort = (m: Model) => { const score = perfScore(m); if (score == null || m.price_output == null) return null; return score / m.price_output; };
 const calculateCost = (m: Model, input: number, output: number, cache: number) => m.price_input == null || m.price_output == null || (cache > 0 && m.price_cache_read == null) ? null : input * (1 - cache / 100) / M * m.price_input + input * cache / 100 / M * (m.price_cache_read ?? 0) + output / M * m.price_output;
