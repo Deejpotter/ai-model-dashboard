@@ -261,6 +261,8 @@ function main() {
     if (!cols.has('score_maths')) db.exec('ALTER TABLE models ADD COLUMN score_maths REAL');
     if (!cols.has('score_sources')) db.exec('ALTER TABLE models ADD COLUMN score_sources TEXT');
     if (!cols.has('score_overall')) db.exec('ALTER TABLE models ADD COLUMN score_overall REAL');
+    if (!cols.has('score_kind')) db.exec('ALTER TABLE models ADD COLUMN score_kind TEXT');
+    if (!cols.has('score_confidence')) db.exec('ALTER TABLE models ADD COLUMN score_confidence TEXT');
     if (!cols.has('aime_2025')) db.exec('ALTER TABLE models ADD COLUMN aime_2025 REAL');
     if (!cols.has('subscription_monthly')) db.exec('ALTER TABLE models ADD COLUMN subscription_monthly REAL');
     if (!cols.has('included_usage_usd')) db.exec('ALTER TABLE models ADD COLUMN included_usage_usd REAL');
@@ -660,7 +662,8 @@ function main() {
       }
       const setScores = db.prepare(`UPDATE models SET
         score_coding = @coding, score_thinking = @thinking,
-        score_maths = @maths, score_overall = @overall, score_sources = @sources
+        score_maths = @maths, score_overall = @overall, score_sources = @sources,
+        score_kind = @kind, score_confidence = @confidence
         WHERE model_id = @model_id`);
       const one = (rowV, rowTag, abV, abTag) => {
         if (rowV != null) return { v: Number(rowV), t: rowTag };
@@ -703,6 +706,7 @@ function main() {
         setScores.run({
           model_id: row.model_id, coding: coding.score, thinking: thinking.score,
           maths: maths.score, overall, sources: srcs || null,
+          kind: oparts.length ? 'measured' : null, confidence: oparts.length ? 'high' : null,
         });
       }
       // OpenCode Zen/Go routes are the same underlying models, but their route
@@ -719,7 +723,8 @@ function main() {
       const copyRouteScores = db.prepare(`UPDATE models SET
         score_coding = @score_coding, score_thinking = @score_thinking,
         score_maths = @score_maths, score_overall = @score_overall,
-        score_sources = @score_sources WHERE model_id = @model_id`);
+        score_sources = @score_sources, score_kind = 'matched', score_confidence = 'high'
+        WHERE model_id = @model_id`);
       let copiedRouteScores = 0;
       for (const row of db.prepare("SELECT model_id FROM models WHERE provider IN ('OpenCode Zen', 'OpenCode Go')").all()) {
         const id = row.model_id.split('/').at(-1).replace(/-free$/, '');
@@ -728,6 +733,87 @@ function main() {
         copiedRouteScores += copyRouteScores.run({ ...source, model_id: row.model_id }).changes;
       }
       stats.opencodeRouteScores = copiedRouteScores;
+
+      // Not every route has a published benchmark. Give those models a useful
+      // starting profile without representing it as a test result: first use
+      // the closest benchmarked family, then fall back to the catalog median.
+      // These values are deliberately kept separate from measured profiles.
+      const profileColumns = ['score_coding', 'score_thinking', 'score_maths', 'score_overall'];
+      const numericMedian = (values) => {
+        const xs = values.filter((value) => value != null).map(Number).sort((a, b) => a - b);
+        if (!xs.length) return null;
+        const middle = Math.floor(xs.length / 2);
+        return xs.length % 2 ? xs[middle] : (xs[middle - 1] + xs[middle]) / 2;
+      };
+      const roundScore = (value) => value == null ? null : Math.max(1, Math.min(99, Math.round(value)));
+      const profileTokens = (value) => (value || '').toLowerCase()
+        .replace(/([a-z])([0-9])/g, '$1 $2').replace(/([0-9])([a-z])/g, '$1 $2')
+        .split(/[^a-z0-9]+/).filter((token) => token.length > 1 || /^\d+$/.test(token))
+        .filter((token) => !['free', 'preview', 'latest', 'contributor', 'turbo', 'instruct', 'chat', 'thinking', 'reasoning', 'model'].includes(token));
+      const families = new Set(['gpt', 'claude', 'gemini', 'deepseek', 'qwen', 'kimi', 'glm', 'minimax', 'mistral', 'llama', 'gemma', 'grok', 'longcat', 'nemotron', 'mimo', 'step', 'phi']);
+      const measuredProfiles = db.prepare(`SELECT provider, model_id, name, reasoning, price_output,
+        score_coding, score_thinking, score_maths, score_overall
+        FROM models WHERE score_kind = 'measured' AND score_overall IS NOT NULL`).all();
+      const medians = Object.fromEntries(profileColumns.map((column) => [column, numericMedian(measuredProfiles.map((profile) => profile[column]))]));
+      const familyIndex = new Map();
+      for (const profile of measuredProfiles) {
+        const tokens = new Set([...profileTokens(profile.name), ...profileTokens(profile.model_id)]);
+        for (const token of tokens) {
+          if (!families.has(token)) continue;
+          if (!familyIndex.has(token)) familyIndex.set(token, []);
+          familyIndex.get(token).push({ ...profile, tokens });
+        }
+      }
+      const updateEstimate = db.prepare(`UPDATE models SET
+        score_coding = @score_coding, score_thinking = @score_thinking,
+        score_maths = @score_maths, score_overall = @score_overall,
+        score_sources = @score_sources, score_kind = @score_kind, score_confidence = @score_confidence
+        WHERE model_id = @model_id`);
+      let estimatedProfiles = 0;
+      for (const row of db.prepare(`SELECT provider, model_id, name, reasoning, price_output
+        FROM models WHERE score_kind IS NULL OR score_kind = ''`).all()) {
+        const tokens = new Set([...profileTokens(row.name), ...profileTokens(row.model_id)]);
+        const candidates = [...tokens].filter((token) => families.has(token)).flatMap((token) => familyIndex.get(token) || []);
+        const seen = new Set();
+        const ranked = candidates.filter((candidate) => {
+          if (seen.has(candidate.model_id)) return false;
+          seen.add(candidate.model_id);
+          return true;
+        }).map((candidate) => {
+          let similarity = 0;
+          for (const token of tokens) {
+            if (!candidate.tokens.has(token)) continue;
+            similarity += /^\d+$/.test(token) ? 1 : families.has(token) ? 6 : 3;
+          }
+          return { candidate, similarity };
+        }).sort((a, b) => b.similarity - a.similarity);
+        const closest = ranked[0];
+        const isComparable = Boolean(closest && closest.similarity >= 6);
+        const source = isComparable ? closest.candidate : null;
+        const profile = {};
+        // Sparse benchmark coverage can make a category-wide median misleading
+        // (for example, maths has fewer published results). When a comparable
+        // model lacks a category, use its overall profile; for a baseline use
+        // the evaluated-catalog overall median consistently across categories.
+        for (const column of profileColumns) profile[column] = roundScore(source?.[column] ?? source?.score_overall ?? medians.score_overall);
+        // A reasoning route is usually a more capable variant than the generic
+        // family default. Keep the adjustment small to avoid false precision.
+        if (!source && row.reasoning) {
+          profile.score_thinking = roundScore((profile.score_thinking ?? 0) + 2);
+          profile.score_overall = roundScore((profile.score_overall ?? 0) + 1);
+        }
+        updateEstimate.run({
+          model_id: row.model_id,
+          ...profile,
+          score_sources: source
+            ? `Estimated from comparable evaluated model: ${source.name} (${source.provider})`
+            : 'Preliminary estimate from the evaluated catalog median',
+          score_kind: source ? 'estimated' : 'baseline',
+          score_confidence: source ? 'medium' : 'low',
+        });
+        estimatedProfiles++;
+      }
+      stats.estimatedProfiles = estimatedProfiles;
       if (allbench) {
         console.log(`benchmarks: ALL-Bench matched ${abMatched}/${specRows.length} rows`);
         stats.abMatched = abMatched;

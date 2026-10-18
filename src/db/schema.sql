@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS models (
   score_maths REAL,
   score_overall REAL,
   score_sources TEXT,
+  -- Whether a performance profile is benchmark-derived, matched to the same
+  -- underlying model, or a clearly-labelled indicative estimate.
+  score_kind TEXT,
+  score_confidence TEXT,
   -- Flags
   is_favourite INTEGER DEFAULT 0,
   -- Sync (populated by scripts/sync-models.mjs, never hand-edited)

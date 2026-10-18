@@ -117,6 +117,8 @@ export type ModelRecord = {
   score_maths?: number | null;
   score_overall?: number | null;
   score_sources?: string | null;
+  score_kind?: 'measured' | 'matched' | 'estimated' | 'baseline' | null;
+  score_confidence?: 'high' | 'medium' | 'low' | null;
 };
 
 export function listModels(params?: { search?: string; provider?: string; favouritesOnly?: boolean; sort?: string; dir?: 'asc' | 'desc'; }) {
