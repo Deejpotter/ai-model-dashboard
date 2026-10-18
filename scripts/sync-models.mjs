@@ -104,8 +104,7 @@ function readOpencodeLanes() {
       const slash = id.indexOf('/');
       if (slash <= 0) continue;
       const lane = id.slice(0, slash);
-      const tag = LANE_TAGS[lane];
-      if (!tag) continue;
+      const tag = LANE_TAGS[lane] ?? lane;
       (lanes[tag] ??= []).push(id);
     }
     return lanes;
@@ -224,6 +223,22 @@ function main() {
         last_updated = datetime('now'),
         last_seen = datetime('now')`);
 
+    const insertDiscovered = db.prepare(`INSERT INTO models (
+      provider, model_id, name, reasoning, multimodal,
+      price_input, price_output, price_cache_read, price_cache_write,
+      context_window, max_tokens, source_url, last_updated, last_seen, available_via
+    ) VALUES (
+      @provider, @model_id, @name, @reasoning, @multimodal,
+      @price_input, @price_output, @price_cache_read, @price_cache_write,
+      @context_window, @max_tokens, @source_url, datetime('now'), datetime('now'), @available_via
+    ) ON CONFLICT(model_id) DO UPDATE SET
+      available_via = CASE
+        WHEN excluded.available_via = '' THEN models.available_via
+        WHEN models.available_via IS NULL OR models.available_via = '' THEN excluded.available_via
+        WHEN instr(',' || models.available_via || ',', ',' || excluded.available_via || ',') > 0 THEN models.available_via
+        ELSE models.available_via || ',' || excluded.available_via END,
+      last_seen = datetime('now')`);
+
     const markLane = db.prepare(
       `UPDATE models SET available_via = CASE
          WHEN available_via IS NULL OR available_via = '' THEN @tag
@@ -235,6 +250,10 @@ function main() {
     const stats = { refreshed: 0, inserted: 0, skippedProviders: [], openrouter: 0 };
 
     const tx = db.transaction(() => {
+      const idSet = new Set(
+        db.prepare('SELECT model_id FROM models').all().map((row) => row.model_id.toLowerCase())
+      );
+
       // 1. Refresh curated rows from their OWN provider's catalog section.
       const rows = db.prepare('SELECT model_id, provider FROM models').all();
       for (const row of rows) {
@@ -268,6 +287,32 @@ function main() {
           source_url: cat.entry.doc || null,
         });
         stats.refreshed++;
+      }
+
+      // 1a. Import each public provider catalogue that is configured in OpenCode.
+      // This keeps the dashboard aligned with the user's actual available providers,
+      // rather than only the original manually curated seed list.
+      const configuredLanes = new Set(Object.keys(lanes || {}));
+      for (const [provider, devId] of Object.entries(PROVIDER_MAP)) {
+        if (!configuredLanes.has(devId)) continue;
+        const cat = catIdx[devId];
+        if (!cat) continue;
+        for (const [key, model] of cat.idx.entries()) {
+          const modelId = `${devId}/${key}`;
+          if (idSet.has(modelId.toLowerCase())) continue;
+          const pricing = model.cost || {};
+          const clean = (value) => (value == null || Number(value) < 0 ? null : Number(value));
+          upsert.run({
+            provider, model_id: modelId, name: model.name || key, reasoning: model.reasoning ? 1 : 0,
+            multimodal: (model.modalities?.input || ['text']).join(','),
+            price_input: clean(pricing.input), price_output: clean(pricing.output),
+            price_cache_read: clean(pricing.cache_read) ?? 0, price_cache_write: clean(pricing.cache_write) ?? 0,
+            context_window: model.limit?.context ?? null, max_tokens: model.limit?.output ?? model.limit?.context ?? null,
+            source_url: cat.entry.doc || null,
+          });
+          idSet.add(modelId.toLowerCase());
+          stats.inserted++;
+        }
       }
 
       // 1b. Vultr catalog: small upstream list (15 models), auto-add new rows.
@@ -305,10 +350,6 @@ function main() {
         if (!devId || !catIdx[devId]) stats.skippedProviders.push(label);
       }
 
-      const idSet = new Set(
-        db.prepare('SELECT model_id FROM models').all().map((r) => r.model_id.toLowerCase())
-      );
-
       // 2. OpenRouter catalog (owns openrouter/* rows exclusively).
       for (const m of orData.data || []) {
         if (!m.id || m.id.startsWith('~')) continue; // skip aliases/endpoint noise
@@ -337,11 +378,36 @@ function main() {
         stats.openrouter++;
       }
 
-      // 3. opencode lane tagging (exact id matches only).
+      // 3. Import OpenCode-only routes (notably Zen and Go), then tag every
+      // configured route on matching public-catalogue rows. These routes often
+      // have no public token price, so their pricing remains NULL by design.
       if (lanes) {
         for (const [tag, ids] of Object.entries(lanes)) {
           for (const id of ids) {
-            if (idSet.has(id.toLowerCase())) markLane.run({ tag, model_id: id });
+            if (!id || id.endsWith('/*')) continue;
+            if (idSet.has(id.toLowerCase())) {
+              markLane.run({ tag, model_id: id });
+              continue;
+            }
+            const [, ...nameParts] = id.split('/');
+            const routeName = tag === 'zen' ? 'OpenCode Zen' : tag === 'go' ? 'OpenCode Go' : tag;
+            insertDiscovered.run({
+              provider: routeName,
+              model_id: id,
+              name: nameParts.join('/') || id,
+              reasoning: 0,
+              multimodal: 'text',
+              price_input: null,
+              price_output: null,
+              price_cache_read: null,
+              price_cache_write: null,
+              context_window: null,
+              max_tokens: null,
+              source_url: 'https://opencode.ai',
+              available_via: tag,
+            });
+            idSet.add(id.toLowerCase());
+            stats.inserted++;
           }
         }
       }

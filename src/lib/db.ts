@@ -137,6 +137,10 @@ export function listModels(params?: { search?: string; provider?: string; favour
   return db.prepare(sql).all(...args) as ModelRecord[];
 }
 
+export function getModel(id: number) {
+  return getDb().prepare('SELECT * FROM models WHERE id = ?').get(id) as ModelRecord | undefined;
+}
+
 export function toggleFavourite(id: number) {
   const db = getDb();
   db.prepare('UPDATE models SET is_favourite = CASE WHEN is_favourite = 1 THEN 0 ELSE 1 END WHERE id = ?').run(id);
