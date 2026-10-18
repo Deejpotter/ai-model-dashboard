@@ -91,6 +91,9 @@ export type ModelRecord = {
   price_output: number | null;
   price_cache_read: number | null;
   price_cache_write: number | null;
+  subscription_monthly?: number | null;
+  included_usage_usd?: number | null;
+  pricing_note?: string | null;
   context_window: number | null;
   max_tokens: number | null;
   mmlu_pro: number | null;

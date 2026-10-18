@@ -46,6 +46,9 @@ Seed data source:
 2. **OpenRouter /models** - live OpenRouter prices (adds new rows as models launch)
 3. **`opencode models`** - tags rows with your configured lanes in `available_via`
    (e.g. `openrouter,zen,go`); full lane inventory goes to the `sync_meta` table
+4. **OpenCode Zen and Go documentation** - supplements their sparse model-list
+   APIs with published per-token rates. Go records also include the plan price
+   and model-specific included-usage allowance.
 
 Only pricing/context/availability columns change. Benchmarks, notes, and
 favourites are never overwritten. Rows not seen in any source keep their old

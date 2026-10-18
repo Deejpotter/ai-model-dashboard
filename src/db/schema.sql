@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS models (
   price_output REAL,
   price_cache_read REAL DEFAULT 0,
   price_cache_write REAL DEFAULT 0,
+  -- Subscription metadata when a route includes a published allowance
+  subscription_monthly REAL,
+  included_usage_usd REAL,
+  pricing_note TEXT,
   -- Context
   context_window INTEGER,
   max_tokens INTEGER,

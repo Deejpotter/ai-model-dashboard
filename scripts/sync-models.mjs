@@ -27,6 +27,8 @@ const MODELS_DEV_URL = 'https://models.dev/api.json';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/models';
 const OPENCODE_ZEN_MODELS_URL = 'https://opencode.ai/zen/v1/models';
 const OPENCODE_GO_MODELS_URL = 'https://opencode.ai/zen/go/v1/models';
+const OPENCODE_ZEN_PRICING_URL = 'https://dev.opencode.ai/docs/zen/';
+const OPENCODE_GO_PRICING_URL = 'https://dev.opencode.ai/docs/go/';
 const ALLBENCH_URL = 'https://huggingface.co/datasets/youssef3146/ALL-Bench-Leaderboard/resolve/main/data/llm.jsonl';
 
 // Dashboard provider label -> models.dev provider id. Unmapped providers
@@ -85,6 +87,53 @@ async function fetchJson(url) {
 async function fetchJsonSoft(url) {
   try { return await fetchJson(url); }
   catch (err) { console.warn(`WARN: ${url} unavailable (${err.message})`); return { data: [] }; }
+}
+
+async function fetchTextSoft(url) {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'ai-model-dashboard-sync/1.0' } });
+    if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+    return await res.text();
+  } catch (err) {
+    console.warn(`WARN: ${url} unavailable (${err.message})`);
+    return '';
+  }
+}
+
+const stripHtml = (value) => value.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+const normalizeOpenCodeName = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const pricingNumber = (value) => {
+  const text = stripHtml(value);
+  if (/^(free|unlimited)$/i.test(text)) return 0;
+  const matches = [...text.matchAll(/\$([0-9]+(?:\.[0-9]+)?)/g)];
+  return matches.length ? Number(matches.at(-1)[1]) : null;
+};
+
+function readPricingTable(html, needsMonthlyLimit) {
+  const tables = html.match(/<table[\s\S]*?<\/table>/gi) || [];
+  const table = tables.find((candidate) => {
+    const header = stripHtml((candidate.match(/<thead[\s\S]*?<\/thead>/i) || [''])[0]);
+    return header.includes('Input') && header.includes('Output') && header.includes('Cached Read') && (!needsMonthlyLimit || header.includes('Monthly limit'));
+  });
+  if (!table) return new Map();
+  const rows = table.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+  const result = new Map();
+  for (const row of rows.slice(1)) {
+    const cells = [...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => match[1]);
+    if (cells.length < 4) continue;
+    const name = stripHtml(cells[0]);
+    const input = pricingNumber(cells[1]);
+    const output = pricingNumber(cells[2]);
+    if (!name || input == null || output == null) continue;
+    const includedUsage = needsMonthlyLimit ? pricingNumber(cells[5] || '') : null;
+    result.set(normalizeOpenCodeName(name), { input, output, cacheRead: pricingNumber(cells[3]), includedUsage });
+  }
+  return result;
+}
+
+async function readOpenCodePricing() {
+  const [zenHtml, goHtml] = await Promise.all([fetchTextSoft(OPENCODE_ZEN_PRICING_URL), fetchTextSoft(OPENCODE_GO_PRICING_URL)]);
+  return { zen: readPricingTable(zenHtml, false), go: readPricingTable(goHtml, true) };
 }
 
 function findOpencodeExe() {
@@ -187,7 +236,7 @@ async function readAA() {
 
 function main() {
   return (async () => {
-    const [catalog, orData, lanes, vultrAccount, allbench, aaModels, zenCatalog, goCatalog] = await Promise.all([
+    const [catalog, orData, lanes, vultrAccount, allbench, aaModels, zenCatalog, goCatalog, opencodePricing] = await Promise.all([
       fetchJson(MODELS_DEV_URL),
       fetchJson(OPENROUTER_URL),
       Promise.resolve().then(readOpencodeLanes),
@@ -196,6 +245,7 @@ function main() {
       readAA(),
       fetchJsonSoft(OPENCODE_ZEN_MODELS_URL),
       fetchJsonSoft(OPENCODE_GO_MODELS_URL),
+      readOpenCodePricing(),
     ]);
 
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -212,6 +262,9 @@ function main() {
     if (!cols.has('score_sources')) db.exec('ALTER TABLE models ADD COLUMN score_sources TEXT');
     if (!cols.has('score_overall')) db.exec('ALTER TABLE models ADD COLUMN score_overall REAL');
     if (!cols.has('aime_2025')) db.exec('ALTER TABLE models ADD COLUMN aime_2025 REAL');
+    if (!cols.has('subscription_monthly')) db.exec('ALTER TABLE models ADD COLUMN subscription_monthly REAL');
+    if (!cols.has('included_usage_usd')) db.exec('ALTER TABLE models ADD COLUMN included_usage_usd REAL');
+    if (!cols.has('pricing_note')) db.exec('ALTER TABLE models ADD COLUMN pricing_note TEXT');
     db.exec(`CREATE TABLE IF NOT EXISTS sync_meta (
       key TEXT PRIMARY KEY, value TEXT, updated TEXT
     )`);
@@ -223,11 +276,16 @@ function main() {
 
     // Per-provider lowercase catalog indexes (same-provider matching only).
     const catIdx = {};
+    const publicSpecs = new Map();
     for (const devId of new Set(Object.values(PROVIDER_MAP))) {
       const entry = catalog[devId];
       if (!entry || !entry.models) continue;
       const idx = new Map();
-      for (const [key, m] of Object.entries(entry.models)) idx.set(key.toLowerCase(), m);
+      for (const [key, m] of Object.entries(entry.models)) {
+        idx.set(key.toLowerCase(), m);
+        const specKey = normalizeOpenCodeName(key);
+        if (specKey && !publicSpecs.has(specKey)) publicSpecs.set(specKey, m);
+      }
       catIdx[devId] = { entry, idx };
     }
 
@@ -357,6 +415,72 @@ function main() {
           idSet.add(modelId.toLowerCase()); stats.inserted++;
         }
       }
+
+      // 1b(ii). The Zen/Go /models endpoints only return IDs. Their published
+      // documentation is the authoritative price source, including Go's monthly
+      // usage allowance, so overlay it after importing the sparse route lists.
+      const applyOpenCodePricing = db.prepare(`UPDATE models SET
+        price_input = @price_input,
+        price_output = @price_output,
+        price_cache_read = @price_cache_read,
+        subscription_monthly = @subscription_monthly,
+        included_usage_usd = @included_usage_usd,
+        pricing_note = @pricing_note,
+        source_url = @source_url,
+        last_updated = datetime('now')
+        WHERE model_id = @model_id`);
+      const applyPricing = (provider, prefix, entries, sourceUrl) => {
+        let updated = 0;
+        for (const row of db.prepare('SELECT model_id FROM models WHERE provider = ?').all(provider)) {
+          const id = row.model_id.startsWith(`${prefix}/`) ? row.model_id.slice(prefix.length + 1) : row.model_id;
+          const rate = entries.get(normalizeOpenCodeName(id));
+          if (!rate) continue;
+          const isFree = rate.input === 0 && rate.output === 0;
+          const hasAllowance = rate.includedUsage != null;
+          const allowance = hasAllowance && rate.includedUsage > 0 ? rate.includedUsage : null;
+          const note = provider === 'OpenCode Go'
+            ? isFree ? 'Free token rate on the Go plan; published allowance: Unlimited'
+              : `Go plan from $10/month · includes ${allowance == null ? 'a published model allowance' : `$${allowance} of model usage`} each month`
+            : 'Zen pay-as-you-go · live published token rate';
+          updated += applyOpenCodePricing.run({
+            model_id: row.model_id,
+            price_input: rate.input,
+            price_output: rate.output,
+            price_cache_read: rate.cacheRead ?? 0,
+            subscription_monthly: provider === 'OpenCode Go' ? 10 : null,
+            included_usage_usd: allowance,
+            pricing_note: note,
+            source_url: sourceUrl,
+          }).changes;
+        }
+        return updated;
+      };
+      stats.opencodeZenPriced = applyPricing('OpenCode Zen', 'opencode', opencodePricing.zen, OPENCODE_ZEN_PRICING_URL);
+      stats.opencodeGoPriced = applyPricing('OpenCode Go', 'opencode-go', opencodePricing.go, OPENCODE_GO_PRICING_URL);
+      const applyOpenCodeSpecs = db.prepare(`UPDATE models SET
+        reasoning = @reasoning,
+        multimodal = @multimodal,
+        context_window = @context_window,
+        max_tokens = @max_tokens
+        WHERE model_id = @model_id`);
+      const backfillRouteSpecs = (provider, prefix) => {
+        let updated = 0;
+        for (const row of db.prepare('SELECT model_id FROM models WHERE provider = ?').all(provider)) {
+          const id = row.model_id.startsWith(`${prefix}/`) ? row.model_id.slice(prefix.length + 1) : row.model_id;
+          const spec = publicSpecs.get(normalizeOpenCodeName(id).replace(/free$/, ''));
+          if (!spec) continue;
+          updated += applyOpenCodeSpecs.run({
+            model_id: row.model_id,
+            reasoning: spec.reasoning ? 1 : 0,
+            multimodal: (spec.modalities?.input || ['text']).join(','),
+            context_window: spec.limit?.context ?? null,
+            max_tokens: spec.limit?.output ?? spec.limit?.context ?? null,
+          }).changes;
+        }
+        return updated;
+      };
+      stats.opencodeZenSpecs = backfillRouteSpecs('OpenCode Zen', 'opencode');
+      stats.opencodeGoSpecs = backfillRouteSpecs('OpenCode Go', 'opencode-go');
 
       // 1c. Vultr catalog: small upstream list (15 models), auto-add new rows.
       const vultr = catIdx.vultr;
@@ -581,6 +705,29 @@ function main() {
           maths: maths.score, overall, sources: srcs || null,
         });
       }
+      // OpenCode Zen/Go routes are the same underlying models, but their route
+      // lists do not carry benchmark identities. Reuse only an exact normalized
+      // public-model match, never a fuzzy name match, to keep scores auditable.
+      const routeScores = new Map();
+      for (const row of db.prepare(`SELECT model_id, name, score_coding, score_thinking, score_maths, score_overall, score_sources
+        FROM models WHERE provider NOT IN ('OpenCode Zen', 'OpenCode Go')`).all()) {
+        if (row.score_overall == null && row.score_coding == null && row.score_thinking == null && row.score_maths == null) continue;
+        for (const key of [normalizeOpenCodeName(row.name), normalizeOpenCodeName(row.model_id.split('/').at(-1))]) {
+          if (key && !routeScores.has(key)) routeScores.set(key, row);
+        }
+      }
+      const copyRouteScores = db.prepare(`UPDATE models SET
+        score_coding = @score_coding, score_thinking = @score_thinking,
+        score_maths = @score_maths, score_overall = @score_overall,
+        score_sources = @score_sources WHERE model_id = @model_id`);
+      let copiedRouteScores = 0;
+      for (const row of db.prepare("SELECT model_id FROM models WHERE provider IN ('OpenCode Zen', 'OpenCode Go')").all()) {
+        const id = row.model_id.split('/').at(-1).replace(/-free$/, '');
+        const source = routeScores.get(normalizeOpenCodeName(id));
+        if (!source) continue;
+        copiedRouteScores += copyRouteScores.run({ ...source, model_id: row.model_id }).changes;
+      }
+      stats.opencodeRouteScores = copiedRouteScores;
       if (allbench) {
         console.log(`benchmarks: ALL-Bench matched ${abMatched}/${specRows.length} rows`);
         stats.abMatched = abMatched;
