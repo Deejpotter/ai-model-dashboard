@@ -52,7 +52,7 @@ favourites are never overwritten. Rows not seen in any source keep their old
 `last_seen` timestamp, so stale entries are identifiable. Providers with no
 public pricing API (e.g. GitHub Copilot) are left untouched.
 
-Automated weekly via Windows Task Scheduler (`AI-Model-Dashboard-Sync`, Sundays 09:00).
+Automated weekly via Windows Task Scheduler (`AI-Model-Dashboard-Sync`, Sundays 09:00). The production container also runs a best-effort sync at startup, so an empty persistent volume is populated with the full public catalogue rather than only the seed records.
 
 ## Live model testing
 

@@ -25,6 +25,8 @@ const SCHEMA_PATH = path.join(ROOT, 'src', 'db', 'schema.sql');
 
 const MODELS_DEV_URL = 'https://models.dev/api.json';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/models';
+const OPENCODE_ZEN_MODELS_URL = 'https://opencode.ai/zen/v1/models';
+const OPENCODE_GO_MODELS_URL = 'https://opencode.ai/zen/go/v1/models';
 const ALLBENCH_URL = 'https://huggingface.co/datasets/youssef3146/ALL-Bench-Leaderboard/resolve/main/data/llm.jsonl';
 
 // Dashboard provider label -> models.dev provider id. Unmapped providers
@@ -62,6 +64,11 @@ async function fetchJson(url) {
   const res = await fetch(url, { headers: { 'User-Agent': 'ai-model-dashboard-sync/1.0' } });
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
   return res.json();
+}
+
+async function fetchJsonSoft(url) {
+  try { return await fetchJson(url); }
+  catch (err) { console.warn(`WARN: ${url} unavailable (${err.message})`); return { data: [] }; }
 }
 
 function findOpencodeExe() {
@@ -164,13 +171,15 @@ async function readAA() {
 
 function main() {
   return (async () => {
-    const [catalog, orData, lanes, vultrAccount, allbench, aaModels] = await Promise.all([
+    const [catalog, orData, lanes, vultrAccount, allbench, aaModels, zenCatalog, goCatalog] = await Promise.all([
       fetchJson(MODELS_DEV_URL),
       fetchJson(OPENROUTER_URL),
       Promise.resolve().then(readOpencodeLanes),
       readVultrAccount(),
       readAllBench(),
       readAA(),
+      fetchJsonSoft(OPENCODE_ZEN_MODELS_URL),
+      fetchJsonSoft(OPENCODE_GO_MODELS_URL),
     ]);
 
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -289,12 +298,10 @@ function main() {
         stats.refreshed++;
       }
 
-      // 1a. Import each public provider catalogue that is configured in OpenCode.
-      // This keeps the dashboard aligned with the user's actual available providers,
-      // rather than only the original manually curated seed list.
-      const configuredLanes = new Set(Object.keys(lanes || {}));
+      // 1a. Import all mapped public provider catalogues, not just the original
+      // seed list or locally configured OpenCode lanes. This makes fresh containers
+      // useful immediately, even when the OpenCode CLI is not installed there.
       for (const [provider, devId] of Object.entries(PROVIDER_MAP)) {
-        if (!configuredLanes.has(devId)) continue;
         const cat = catIdx[devId];
         if (!cat) continue;
         for (const [key, model] of cat.idx.entries()) {
@@ -315,7 +322,22 @@ function main() {
         }
       }
 
-      // 1b. Vultr catalog: small upstream list (15 models), auto-add new rows.
+      // 1b. OpenCode publishes its Zen and Go lists independently of the local
+      // OpenCode CLI. Import them so deployed containers retain those routes too.
+      for (const [provider, prefix, tag, catalogRows] of [
+        ['OpenCode Zen', 'opencode', 'zen', zenCatalog.data || []],
+        ['OpenCode Go', 'opencode-go', 'go', goCatalog.data || []],
+      ]) {
+        for (const model of catalogRows) {
+          if (!model.id) continue;
+          const modelId = `${prefix}/${model.id}`;
+          if (idSet.has(modelId.toLowerCase())) { markLane.run({ tag, model_id: modelId }); continue; }
+          insertDiscovered.run({ provider, model_id: modelId, name: model.id, reasoning: 0, multimodal: 'text', price_input: null, price_output: null, price_cache_read: null, price_cache_write: null, context_window: null, max_tokens: null, source_url: 'https://opencode.ai', available_via: tag });
+          idSet.add(modelId.toLowerCase()); stats.inserted++;
+        }
+      }
+
+      // 1c. Vultr catalog: small upstream list (15 models), auto-add new rows.
       const vultr = catIdx.vultr;
       if (vultr) {
         const known = new Set(db.prepare('SELECT model_id FROM models').all().map((r) => r.model_id.toLowerCase()));
