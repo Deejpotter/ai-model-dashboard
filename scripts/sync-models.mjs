@@ -60,6 +60,22 @@ const LANE_TAGS = {
   'console-anthropic': 'console-anthropic',
 };
 
+const ROUTE_PROVIDER_LABELS = {
+  openrouter: 'OpenRouter',
+  'console-openrouter': 'OpenRouter',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  'console-anthropic': 'Anthropic',
+  google: 'Google',
+  deepseek: 'DeepSeek',
+  deepinfra: 'DeepInfra',
+  mistral: 'Mistral',
+  xai: 'xAI',
+  vultr: 'Vultr',
+  'github-copilot': 'GitHub Copilot',
+  lmstudio: 'LM Studio',
+};
+
 async function fetchJson(url) {
   const res = await fetch(url, { headers: { 'User-Agent': 'ai-model-dashboard-sync/1.0' } });
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
@@ -199,6 +215,11 @@ function main() {
     db.exec(`CREATE TABLE IF NOT EXISTS sync_meta (
       key TEXT PRIMARY KEY, value TEXT, updated TEXT
     )`);
+    // Older syncs used raw lower-case lane names as provider labels. Keep the
+    // provider selector readable and avoid duplicate filters for one provider.
+    for (const [lane, label] of Object.entries(ROUTE_PROVIDER_LABELS)) {
+      db.prepare('UPDATE models SET provider = ? WHERE provider = ?').run(label, lane);
+    }
 
     // Per-provider lowercase catalog indexes (same-provider matching only).
     const catIdx = {};
@@ -412,7 +433,7 @@ function main() {
               continue;
             }
             const [, ...nameParts] = id.split('/');
-            const routeName = tag === 'zen' ? 'OpenCode Zen' : tag === 'go' ? 'OpenCode Go' : tag;
+            const routeName = tag === 'zen' ? 'OpenCode Zen' : tag === 'go' ? 'OpenCode Go' : ROUTE_PROVIDER_LABELS[tag] ?? tag;
             insertDiscovered.run({
               provider: routeName,
               model_id: id,
