@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UX Deep-Dive — Usage & Subscription Cost Display</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap');
+  :root{--bg:#0b0f14;--surface:#11151c;--surface-2:#181e2a;--border:#222b3a;--text:#c9d2e3;--text-strong:#f2f5fa;--muted:#8895ad;--accent:#c084fc;--accent-2:#e879f9;--warn:#f59e0b;--ok:#4ade80;--danger:#f87171;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;line-height:1.55;padding:2.5rem 1rem 6rem;max-width:980px;margin:0 auto}
+  header{border-bottom:2px solid var(--border);padding-bottom:2rem;margin-bottom:2.5rem}
+  h1{font-size:2.2rem;font-weight:800;color:var(--text-strong);letter-spacing:-0.03em;line-height:1.15;margin-bottom:.35rem}
+  .subtitle{font-size:1.05rem;color:var(--muted)}
+  .meta{display:flex;gap:2rem;flex-wrap:wrap;margin-top:1.1rem;font-size:.82rem;color:var(--muted)}
+  .badge{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;background:var(--surface-2);border:1px solid var(--border);color:var(--accent-2)}
+  h2{font-size:1.35rem;font-weight:700;color:var(--text-strong);margin:2.8rem 0 .9rem;padding-bottom:.35rem;border-bottom:1px solid var(--border);letter-spacing:-0.02em}
+  h3{font-size:1.05rem;font-weight:600;color:var(--text-strong);margin:1.6rem 0 .5rem}
+  p,li{margin-bottom:.8rem;color:var(--text)}
+  ul{padding-left:1.3rem}
+  li{margin-bottom:.35rem}
+  .callout{background:linear-gradient(160deg,var(--surface-2),#161b25);border:1px solid var(--border);border-left:4px solid var(--warn);padding:1rem 1.1rem;border-radius:10px;margin:1.2rem 0}
+  .callout.critical{border-left-color:var(--danger)}
+  .callout.ok{border-left-color:var(--ok)}
+  .callout strong{color:var(--text-strong);display:block;margin-bottom:.2rem;font-size:.95rem}
+  .evidence{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem 1.1rem;margin:1rem 0;font-family:'JetBrains Mono',monospace;font-size:.82rem;line-height:1.6;overflow-x:auto}
+  .evidence .line-num{color:#4a5568;margin-right:.6rem;user-select:none}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.9rem}
+  th{background:var(--surface-2);color:var(--text-strong);text-align:left;padding:.55rem .7rem;border-bottom:2px solid var(--border);font-weight:600;font-size:.82rem}
+  td{padding:.55rem .7rem;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:hover td{background:#161b25}
+  code{font-family:'JetBrains Mono',monospace;background:#1a2230;padding:.1rem .35rem;border-radius:4px;font-size:.85em;color:var(--accent-2)}
+  .recommendation{background:#161b25;border:1px solid var(--border);border-radius:10px;padding:1.1rem 1.2rem;margin:1rem 0}
+  .recommendation h4{font-size:.9rem;font-weight:700;color:var(--accent);margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.04em}
+  .tag{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .55rem;border-radius:999px;font-family:'JetBrains Mono',monospace;font-size:.75rem;font-weight:600;border:1px solid var(--border);margin-right:.3rem;margin-bottom:.3rem}
+  .tag.p0{background:#2a1a1a;border-color:var(--danger);color:var(--danger)}
+  .tag.p1{background:#2a1f0f;border-color:var(--warn);color:var(--warn)}
+  .tag.p2{background:#122223;border-color:var(--ok);color:var(--ok)}
+  section{margin-top:2rem}
+  .figure-caption{font-size:.8rem;color:var(--muted);margin-top:.3rem}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
+  @media(max-width:720px){.two-col{grid-template-columns:1fr;}}
+  footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--border);font-size:.8rem;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
+</style>
+</head>
+<body>
+
+<header>
+<h1>Usage &amp; Subscription Cost — Deep-Dive Report</h1>
+<p class="subtitle">Investigation of why the $60 included-allowance display is not useful, with real evidence from the codebase, schema, and live UI.</p>
+<div class="meta">
+  <span><strong>Project:</strong> ai-model-dashboard</span>
+  <span><strong>Scope:</strong> Cost planner / subscription usage display</span>
+  <span><strong>Evidence date:</strong> 19 Oct 2026</span>
+  <span><strong>Status:</strong> <span class="badge">P0 — Decision quality</span></span>
+</div>
+</header>
+
+<section>
+<h2>1. What I was asked — reasoning first</h2>
+<p>When you said <em>“This isn't a very useful data. I would like the usage to show what the usage would be because the token usage still comes out of the $60,”</em> the complaint was about the <strong>subscription-model billing text</strong> shown in the card/detail view (your screenshot: <code>From $10.00 / month — includes $60 of model usage each month</code>).</p>
+
+<div class="callout critical">
+<strong>My interpretation (verified against code)</strong>
+For subscription routes (e.g. GitHub Copilot-style $10/mo with $60 included usage), the interface shows the <em>allowance</em> as static text but never computes how much of it has been consumed by the current workload scenario. The planner calculates pure token cost (<code>calculateCost</code>) ignoring both <code>subscription_monthly</code> and <code>included_usage_usd</code>. The result: a user planning an agent workload cannot tell whether their usage fits inside the $60 allowance (effective cost = just $10 fee) or exceeds it (fee + overage).</div>
+</section>
+
+<section>
+<h2>2. Investigation — evidence from the app</h2>
+
+<h3>2.1 The screenshot matches the static <code>billing()</code> output</h3>
+<p>Your image matches exactly the <code>subscription</code> branch of <code>billing()</code> at <code>Dashboard.tsx:24</code>:</p>
+<div class="evidence">const billing = (m: Model, monthly: number | null) =>
+  isFreeModel(m) ? { label: 'Free', detail: ... }
+  : m.subscription_monthly != null
+    ? { label: `From ${money(m.subscription_monthly)} / month`,
+        detail: m.pricing_note ?? (m.included_usage_usd != null ? `Includes ${money(m.included_usage_usd)} of model usage` : 'Subscription route'),
+        state: 'subscription' }
+  : ...</div>
+<p>Note: <strong>the detail is hard-coded to the allowance amount ($60), never to actual consumption.</strong> There is no parameter for “used so far” and no calculation of remaining balance.</p>
+
+<h3>2.2 The planner ignores subscription economics entirely</h3>
+<p><code>calculateCost</code> (line 22) is pure token arithmetic:</p>
+<div class="evidence">const calculateCost = (m: Model, input, output, cache) =>
+  m.price_input == null || m.price_output == null || (cache > 0 && m.price_cache_read == null)
+    ? null
+    : input * (1 - cache/100) / M * m.price_input
+      + input * cache/100 / M * (m.price_cache_read ?? 0)
+      + output / M * m.price_output;  // &lt;— no subscription check</div>
+<p>Consequence: a $10/mo subscription model with $60 included usage will show, say, <strong>$12.40</strong> for a heavy scenario — implying you pay $12.40 on top of $10, when in reality you might still be inside the $60 bucket.</p>
+
+<h3>2.3 Schema has allowance fields, but no consumption table</h3>
+<table>
+<thead><tr><th>Field</th><th>In schema</th><th>Used in UI</th><th>Used in planner</th></tr></thead>
+<tbody>
+<tr><td><code>subscription_monthly</code></td><td>Yes</td><td>Label only (<code>billing</code>)</td><td>No</td></tr>
+<tr><td><code>included_usage_usd</code></td><td>Yes</td><td>Static text only</td><td>No</td></tr>
+<tr><td><code>pricing_note</code></td><td>Yes</td><td>Static text only</td><td>No</td></tr>
+<tr><td>Usage / consumption / remaining table</td><td><strong>No</strong></td><td>No</td><td>No</td></tr>
+</tbody>
+</table>
+
+<h3>2.4 Seed data confirms the gap</h3>
+<p>All 25 seeded models (<code>seed-data.ts</code>) have <code>price_input</code> and <code>price_output</code> populated, but <strong>none populate <code>subscription_monthly</code> or <code>included_usage_usd</code></strong> — the fields are present in the DB schema but not exercised in data. This means the subscription display is essentially untested in production scenarios.</p>
+
+<div class="callout critical"><strong>P0 finding — decision quality</strong><br>The planner can rank a subscription model lower (or higher) than it should be because it compares raw token cost against a metered route, ignoring that the first $60 is prepaid. Users making a shortlist are comparing incomparable cost structures.</div>
+
+<h3>2.5 No feedback loop: usage never feeds back into the card</h3>
+<p>The model card (<code>ModelCard</code>, line 54) renders <code>price.label</code> and <code>price.detail</code> once. There is no state for <code>used_usd</code>, <code>remaining_usd</code>, or <code>scenario_cost_vs_allowance</code>. The comparison tray and detail drawer also only show <code>monthly</code> (the planner's raw cost), never the effective subscription cost.</p>
+</section>
+
+<section>
+<h2>3. Pain points (ordered by severity)</h2>
+
+<table>
+<thead><tr><th>Priority</th><th>Pain point</th><th>Evidence</th><th>User impact</th></tr></thead>
+<tbody>
+<tr><td><span class="tag p0">P0</span></td><td>Usage shown as static allowance, not computed consumption</td><td><code>billing()</code> detail is hard-coded string; no consumption param</td><td>Cannot tell if workload fits inside $60</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td>Planner calculates wrong effective cost for subscription routes</td><td><code>calculateCost</code> ignores <code>subscription_monthly</code> / <code>included_usage_usd</code></td><td>Shortlist shows false “cheapest” / “most expensive”</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td>No distinction between “fee + overage” vs “pure metered”</td><td>Both paths render as <code>label: 'From $X'</code> or <code>label: '$X / month'</code></td><td>Comparison of subscription vs metered is misleading</td></tr>
+<tr><td><span class="tag p1">P1</span></td><td>State not persisted / shareable</td><td>Filters in memory; no URL param for scenario; existing audit confirms</td><td>Can’t share “my $60-plan scenario”</td></tr>
+<tr><td><span class="tag p1">P1</span></td><td>Data freshness hidden</td><td><code>last_updated</code>, <code>source_url</code>, <code>last_seen</code> in schema, not in UI</td><td>User can’t tell if $60 figure is current</td></tr>
+</tbody>
+</table>
+</section>
+
+<section>
+<h2>4. Recommendations</h2>
+
+<div class="recommendation"><h4>R1 — Compute usage in dollar terms (P0)</h4><p>Add a <strong>scenario-cost vs allowance</strong> calculation path:</p><ul>
+<li>If model has <code>subscription_monthly</code> and <code>included_usage_usd</code>, compute <code>raw_cost = calculateCost(...)</code>.</li>
+<li>If <code>raw_cost &lt;= included_usage_usd</code>, effective cost = <code>subscription_monthly</code> (only fee; usage is covered).</li>
+<li>If <code>raw_cost &gt; included_usage_usd</code>, effective cost = <code>subscription_monthly + (raw_cost - included_usage_usd)</code>.</li>
+<li>Display both numbers: <strong>Usage cost: $X (of $60 included)</strong> and <strong>Effective monthly: $Y (fee + overage)</strong>.</li>
+</ul></div>
+
+<div class="recommendation"><h4>R2 — Change billing text from static to computed (P0)</h4><p>Replace <code>Includes ${money(included_usage_usd)} of model usage</code> with a computed string based on current planner scenario, e.g. <code>Usage: $12 / $60 included · Effective: $10/mo</code> or <code>$78 / $60 · Over by $18</code>.</p></div>
+
+<div class="recommendation"><h4>R3 — Separate “Subscription” and “Metered” comparison logic (P0)</h4><p>In comparison view and planner, tag rows by pricing mode (<code>subscription</code> / <code>metered</code> / <code>free</code>) so users never compare a $10-fee plan against a $0-fee-but-pay-per-token route without the context of the allowance.</p></div>
+
+<div class="recommendation"><h4>R4 — Add usage/consumption fields or scenario-state (P1)</h4><p>Introduce either a session-state object (<code>scenarioUsedUsd</code>, <code>scenarioRemainingUsd</code>) or a lightweight DB table if persistent tracking is needed. At minimum, the planner should expose <code>budget</code> comparison against both raw and effective cost.</p></div>
+
+<div class="recommendation"><h4>R5 — Surface source/freshness for subscription claims (P1)</h4><p>When showing "Includes $60 of model usage," also show <code>last_updated</code> / <code>pricing_note</code> source so users know the allowance figure is from the provider and when it was verified.</p></div>
+</section>
+
+<section>
+<h2>5. How this connects to the broader audit</h2>
+<p>The existing <code>docs/ux-audit-and-redesign-proposal.md</code> (prepared 18 Oct 2026) already flags <strong>P0 cost-calculation errors</strong> (null prices treated as zero) and <strong>P0 too-much-information-at-once</strong> (12-column table). The subscription-usage gap is a <strong>new P0 that intersects both</strong>: even with perfect pricing data, the planner misrepresents subscription economics because the allowance is never subtracted from the token cost.</p>
+
+<div class="callout ok"><strong>Recommended next step</strong><br>Before redesigning the catalogue layout (Phase 1 of the audit proposal), fix R1 + R2. They are <strong>code-only changes to <code>Dashboard.tsx</code></strong> (update <code>calculateCost</code>, <code>billing</code>, and the planner projection list) and do not require DB schema changes for an initial version, since the planner already holds <code>input</code>, <code>output</code>, <code>cache</code> state.</div>
+</section>
+
+<section>
+<h2>6. Evidence index (file + line)</h2>
+<table>
+<thead><tr><th>File</th><th>Line / area</th><th>What it proves</th></tr></thead>
+<tbody>
+<tr><td><code>src/components/Dashboard.tsx</code></td><td>22 — <code>calculateCost</code></td><td>No subscription logic in cost formula</td></tr>
+<tr><td><code>src/components/Dashboard.tsx</code></td><td>24 — <code>billing</code></td><td>Static allowance text, no consumption param</td></tr>
+<tr><td><code>src/components/Dashboard.tsx</code></td><td>54 — <code>ModelCard</code></td><td>Card renders <code>price.label/detail</code> without usage state</td></tr>
+<tr><td><code>src/db/schema.sql</code></td><td>15–17</td><td>Subscription fields exist in DB; no usage table</td></tr>
+<tr><td><code>src/lib/seed-data.ts</code></td><td>All 25 rows</td><td>Subscription fields not populated; untested path</td></tr>
+<tr><td><code>docs/ux-audit-and-redesign-proposal.md</code></td><td>60–64; 147–155</td><td>Prior P0 confirms cost recommendations are wrong; planner needs named scenarios + budget</td></tr>
+</tbody>
+</table>
+</section>
+
+<footer>
+  <div><strong>Report by:</strong> UX / design investigation (agent-assisted, evidence-based)</div>
+  <div><strong>Files inspected:</strong> Dashboard.tsx, schema.sql, seed-data.ts, docs/ux-audit-and-redesign-proposal.md</div>
+</footer>
+
+</body>
+</html>
