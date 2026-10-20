@@ -169,6 +169,58 @@ async function main() {
     totalRows += rows;
     console.log(`  ${source}: ${matched}/${body.data.length} models matched, ${rows} rows written (as_of ${body.meta?.as_of ?? '?'})`);
   }
+  // Propagate benchmarks from base models to :batch/:free/:latest variants
+  const allModels = DB.prepare('SELECT model_id FROM models').all().map(r => r.model_id);
+  const benchModelIds = DB.prepare('SELECT DISTINCT model_id FROM benchmarks').all().map(r => r.model_id);
+  for (const baseModel of benchModelIds) {
+    let propagated = 0;
+    for (const modelId of allModels) {
+      if (modelId === baseModel) continue;
+      const suffixMatch = modelId.match(/:(free|batch|latest)$/);
+      if (!suffixMatch) continue;
+      const stripped = modelId.replace(/:(free|batch|latest)$/, '');
+      if (stripped === baseModel || canonical(stripped) === canonical(baseModel)) {
+        const sourceRows = DB.prepare('SELECT source, metric, value, as_of, source_url, citation FROM benchmarks WHERE model_id = ?').all(baseModel);
+        for (const sr of sourceRows) {
+          const check = DB.prepare('SELECT 1 FROM benchmarks WHERE model_id = ? AND source = ? AND metric = ?').get(modelId, sr.source, sr.metric);
+          if (!check) {
+            DB.prepare('INSERT INTO benchmarks (model_id, source, metric, value, as_of, source_url, citation) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+              modelId, sr.source, sr.metric, sr.value, sr.as_of, sr.source_url, sr.citation
+            );
+            propagated++;
+          }
+        }
+      }
+    }
+    if (propagated > 0) console.log(`Propagated ${propagated} benchmarks from ${baseModel}`);
+  }
+  // Name-based matching for remaining variants (e.g. route aliases with different model_ids)
+  const benchNames = DB.prepare('SELECT DISTINCT model_id FROM benchmarks').all().map(r => r.model_id);
+  const benchNameMap = new Map();
+  for (const b of benchNames) {
+    const r = DB.prepare('SELECT name FROM models WHERE model_id = ? LIMIT 1').get(b);
+    if (r && r.name) benchNameMap.set(r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), b);
+  }
+  let namePropagated = 0;
+  for (const row of DB.prepare("SELECT model_id, name FROM models").all()) {
+    if (benchNames.includes(row.model_id)) continue;
+    const n = (row.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    if (benchNameMap.has(n)) {
+      const targetId = benchNameMap.get(n);
+      const sourceRows = DB.prepare('SELECT source, metric, value, as_of, source_url, citation FROM benchmarks WHERE model_id = ?').all(targetId);
+      for (const sr of sourceRows) {
+        const check = DB.prepare('SELECT 1 FROM benchmarks WHERE model_id = ? AND source = ? AND metric = ?').get(row.model_id, sr.source, sr.metric);
+        if (!check) {
+          DB.prepare('INSERT INTO benchmarks (model_id, source, metric, value, as_of, source_url, citation) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            row.model_id, sr.source, sr.metric, sr.value, sr.as_of, sr.source_url, sr.citation
+          );
+          namePropagated++;
+        }
+      }
+    }
+  }
+  if (namePropagated > 0) console.log(`Propagated ${namePropagated} benchmarks via name matching`);
+  totalRows += namePropagated + propagatedTotal;
   console.log(`Total benchmark rows written: ${totalRows}`);
 }
 
