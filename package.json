@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "node src/db/init.js",
-    "sync": "node scripts/sync-models.mjs"
+    "sync": "node scripts/sync-models.mjs || true; node scripts/sync-benchmarks.mjs || true"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
