@@ -53,3 +53,15 @@ CREATE TABLE IF NOT EXISTS models (
 CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider);
 CREATE INDEX IF NOT EXISTS idx_models_favourite ON models(is_favourite);
 CREATE INDEX IF NOT EXISTS idx_models_price_output ON models(price_output);
+CREATE TABLE IF NOT EXISTS benchmarks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  model_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  metric TEXT NOT NULL,
+  value REAL,
+  as_of TEXT,
+  source_url TEXT,
+  citation TEXT,
+  UNIQUE (model_id, source, metric)
+);
+CREATE INDEX IF NOT EXISTS idx_benchmark_model ON benchmarks(model_id);

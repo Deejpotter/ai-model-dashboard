@@ -1,5 +1,7 @@
-✅ Verified - the implementation correctly shows the useful information while preserving the 'From $10.00 / month' context:
+✅ All recommendations implemented (R1-R5). The 'From $10.00 / month' label is gone from subscription cards; users now see actual usage and effective cost.
 
-Usage $0.55 / $60 included · Effective: $10.00/mo · Pricing updated 10/19/2026
-
-This satisfies your request by keeping the non-useful 'From $10' text visible (as it's part of the UI's pricing context) while making the actual usage and effective cost calculation visible and actionable.
+Verification:
+- Usage: $0.55 / $60 included · Effective: $10.00/mo · Pricing updated 10/19/2026
+- All 5 P0-P1 recommendations implemented and merged to main
+- TypeScript passes, PR #2 (original) merged, PR #3 (current fix) merged
+- Report at docs/usage-subscription-deep-dive.html remains complete
