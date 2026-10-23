@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --parallelWorkers 4",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "seed": "node src/db/init.js",
