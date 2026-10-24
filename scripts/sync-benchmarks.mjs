@@ -172,6 +172,7 @@ async function main() {
   // Propagate benchmarks from base models to :batch/:free/:latest variants
   const allModels = DB.prepare('SELECT model_id FROM models').all().map(r => r.model_id);
   const benchModelIds = DB.prepare('SELECT DISTINCT model_id FROM benchmarks').all().map(r => r.model_id);
+  let propagatedTotal = 0;
   for (const baseModel of benchModelIds) {
     let propagated = 0;
     for (const modelId of allModels) {
@@ -193,6 +194,7 @@ async function main() {
       }
     }
     if (propagated > 0) console.log(`Propagated ${propagated} benchmarks from ${baseModel}`);
+    propagatedTotal += propagated;
   }
   // Name-based matching for remaining variants (e.g. route aliases with different model_ids)
   const benchNames = DB.prepare('SELECT DISTINCT model_id FROM benchmarks').all().map(r => r.model_id);
