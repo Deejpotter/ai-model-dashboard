@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 
-let dbInstance: any = null;
+let dbInstance: InstanceType<typeof Database> | null = null;
 function getDb() {
   if (dbInstance) return dbInstance;
   dbInstance = new Database(path.join(process.cwd(), 'data', 'models.db'), { readonly: true });
