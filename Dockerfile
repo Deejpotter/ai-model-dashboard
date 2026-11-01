@@ -7,8 +7,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --legacy-peer-d
 
 FROM deps AS app
 COPY . .
-RUN npx tsc --noEmit --skipLibCheck --noEmitOnError false
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
